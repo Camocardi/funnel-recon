@@ -437,3 +437,40 @@ def cmd_app(args) -> int:
     except KeyboardInterrupt:
         print("\nencerrado.")
     return 0
+
+# No arquivo cli.py, adicione este comando
+
+@cli.command()
+@click.argument("url")
+@click.option("--proxy", help="Proxy: socks5://user:pass@host:porta")
+@click.option("--force-browser", is_flag=True, help="Forçar uso de navegador real")
+@click.option("--no-fallback", is_flag=True, help="Desabilitar fallback para navegador")
+def probe(url, proxy, force_browser, no_fallback):
+    """Sonda uma URL real com fallback para navegador se detectar despejo."""
+    from funnel_recon.probe import probe_url
+    
+    result = probe_url(
+        url=url,
+        proxy=proxy,
+        use_js_fallback=not no_fallback,
+        force_browser=force_browser,
+    )
+    
+    # Exibe resultado formatado
+    print("\n" + "="*60)
+    print("📊 RESULTADO DA PROBE")
+    print("="*60)
+    print(f"URL: {url}")
+    print(f"Proxy: {proxy or 'Nenhum'}")
+    print(f"Método usado: {result.get('method', 'desconhecido')}")
+    print(f"Despejo? {'SIM' if result.get('bounced') else 'NÃO'}")
+    if result.get('bounce_reason'):
+        print(f"Motivo do despejo: {result['bounce_reason']}")
+    
+    # Mostra trecho do HTML
+    html = result.get('html', '')
+    print(f"\n📄 HTML (primeiros 500 caracteres):")
+    print("-"*60)
+    print(html[:500])
+    print("-"*60)
+    print(f"Tamanho total: {len(html):,} caracteres")
