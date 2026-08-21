@@ -51,6 +51,19 @@ def profile_dir() -> Path:
     return d
 
 
+def probe_profile_dir() -> Path:
+    """Perfil do navegador que sonda o ALVO -- separado do que loga no Meta.
+
+    Nao e frescura de organizacao, e opsec. O perfil da coleta esta logado no
+    Facebook; se ele visitar a pagina do anunciante, o pixel de la dispara com
+    a sua identidade logada e voce entra no publico do proprio alvo que esta
+    investigando. Sonda com perfil proprio e limpo.
+    """
+    d = support_dir() / "probe_profile"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def venv_python() -> Path:
     return support_dir() / "venv" / "bin" / "python"
 

@@ -64,6 +64,8 @@ def fingerprint(html: str, source: str = "") -> dict:
         "source": source,
         "title": _title(html),
         "video": _vals("vsl_video:"),
+        "player_ids": _vals("vsl_player_id:"),
+        "accounts": _vals("vsl_account:"),
         "players": _vals("vsl_player:"),
         "checkouts": checkouts,
         "product_ids": produtos,
@@ -102,8 +104,16 @@ def compare(a: dict, b: dict) -> dict:
     ou o dominio tenham mudado; video diferente com o mesmo produto e a MESMA
     oferta com criativo novo -- exatamente o caso "e a VSL nova?".
     """
+    # Discriminador: o uuid do video, quando os dois lados tem. O m3u8 e
+    # montado pelo JS em tempo de execucao, entao HTML estatico muitas vezes
+    # so traz a tag do player -- ai o id do player responde no lugar dele.
     va, vb = set(a.get("video", [])), set(b.get("video", []))
+    base = "video"
+    if not (va and vb):
+        va, vb = set(a.get("player_ids", [])), set(b.get("player_ids", []))
+        base = "player"
     pa, pb = set(a.get("product_ids", [])), set(b.get("product_ids", []))
+    ca, cb = set(a.get("accounts", [])), set(b.get("accounts", []))
 
     if va and vb:
         if va & vb:
@@ -119,8 +129,13 @@ def compare(a: dict, b: dict) -> dict:
 
     return {
         "veredito": veredito,
+        "comparado_por": base,
         "video_igual": sorted(va & vb),
         "video_so_em_a": sorted(va - vb),
         "video_so_em_b": sorted(vb - va),
         "produto_comum": sorted(pa & pb),
+        # A conta do player nao entra no veredito: ela e a mesma em todas as
+        # VSLs do operador. Sai como dado a parte -- e o que liga um dominio
+        # novo ao mesmo dono.
+        "conta_comum": sorted(ca & cb),
     }

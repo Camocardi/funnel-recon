@@ -194,6 +194,14 @@ def render(all_results: dict[str, list[ScanResult]]) -> str:
 # ===========================================================================
 
 PREFLIGHT_MSG = {
+    "dominio_nao_resolve": (
+        "[X] O DOMINIO NAO EXISTE no DNS (NXDOMAIN).\n"
+        "    Nao ha o que sondar: nenhuma persona vai chegar a lugar nenhum, e\n"
+        "    o resultado seria timeout em todas -- que se parece com 'proxy\n"
+        "    ruim' e nao e. Anuncio ativo na Biblioteca com dominio ja\n"
+        "    derrubado e comum: o anunciante queima o dominio antes de a\n"
+        "    campanha sair do ar. Colete de novo para pegar o dominio atual."
+    ),
     "url_e_raiz": (
         "[!] Voce passou a RAIZ do dominio, sem caminho depois da barra.\n"
         "    Esse foi o erro que custou varias rodadas na investigacao original:\n"

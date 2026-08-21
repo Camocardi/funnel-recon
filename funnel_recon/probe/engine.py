@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import socket
 import time
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
@@ -75,6 +76,31 @@ def preflight(url: str) -> list[str]:
     return warns
 
 
+def preflight_dns(url: str) -> list[str]:
+    """O aviso que precisa da rede. Separado do preflight de proposito: aquele
+    e puro e custa zero, este consulta DNS.
+
+    Evita o pior desperdicio deste comando. Dominio morto da TIMEOUT em toda
+    persona -- nove esperas de 45s pelo proxy, seis minutos, e a leitura final
+    diz "cheque conexao / proxy / URL" sem saber apontar qual dos tres.
+    Anuncio ainda listado como ativo na Biblioteca com o dominio ja derrubado
+    e comum: o anunciante queima o dominio antes de a campanha sair do ar.
+    """
+    try:
+        host = urlparse(url).hostname
+    except ValueError:
+        return []
+    if not host:
+        return []
+    try:
+        socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        return ["dominio_nao_resolve"]
+    except Exception:
+        return []  # rede indisponivel agora nao e o mesmo que dominio morto
+    return []
+
+
 def _normalize(body: str) -> str:
     """Remove nonce/timestamp antes de hashear.
 
@@ -84,6 +110,21 @@ def _normalize(body: str) -> str:
     """
     norm = re.sub(r"[0-9a-f]{16,}|\d{10,}", "", body)
     return re.sub(r"\s+", " ", norm).strip()
+
+
+def _ilegivel(body: str, amostra: int = 4000, limite: float = 0.05) -> bool:
+    """O corpo e binario/lixo em vez de texto?
+
+    Conta caracteres de controle e o marcador de substituicao que sobra de
+    decodificacao errada. HTML normal fica muito abaixo do limite; corpo mal
+    descomprimido estoura.
+    """
+    trecho = body[:amostra]
+    if not trecho:
+        return False
+    ruins = sum(1 for ch in trecho
+                if ch == "\ufffd" or (ord(ch) < 32 and ch not in "\t\r\n"))
+    return ruins / len(trecho) > limite
 
 
 def run_persona(url: str, p: Persona, proxy: str | None = None,
@@ -116,12 +157,29 @@ def run_persona(url: str, p: Persona, proxy: str | None = None,
     if resp is None:
         return r
 
+    # A escada de impersonate deixou o erro da tentativa que falhou. Se uma
+    # tentativa seguinte respondeu, aquele erro nao aconteceu com esta persona
+    # -- carregar ele adiante faz o relatorio mostrar erro em persona que deu
+    # 200, e o ScanResult sai com verdict "white" e error preenchido.
+    r.error = ""
     r.ok = True
     r.status = resp.status_code
     r.hops = [h.url for h in getattr(resp, "history", [])] + [resp.url]
     r.final_url = resp.url
 
     body = resp.text or ""
+
+    # Resposta ilegivel com status 200. Visto de verdade: o proxy devolveu
+    # `Content-Encoding: gzip` num corpo que era brotli, o cliente
+    # descomprimiu errado e entregou binario. Sem esta guarda o corpo entra
+    # como pagina normal, scan_text nao acha sinal nenhum e a persona vira
+    # "white" -- o app conclui "recebeu a safe page" sobre algo que nunca foi
+    # lido. Erro honesto vale mais que veredito inventado.
+    if body and _ilegivel(body):
+        r.error = ("resposta ilegivel (Content-Encoding nao confere com o "
+                   "corpo) -- nao da para ler esta resposta")
+        return r
+
     r.body_len = len(body)
     r.body_sha = hashlib.sha256(
         _normalize(body).encode("utf-8", "replace")).hexdigest()[:12]
@@ -178,24 +236,61 @@ def normalize_proxy(raw: str | None) -> str | None:
     return f"{scheme}://{rest}"
 
 
+def e_navegador(persona: str) -> bool:
+    """A persona veio do Chromium real?
+
+    Importa por um motivo tecnico especifico: `page.content()` devolve o DOM
+    RE-SERIALIZADO pelo navegador (aspas normalizadas, tags fechadas), nunca
+    o HTML cru que o servidor mandou. O hash dele portanto JAMAIS bate com o
+    de uma persona HTTP, mesmo que a pagina seja identica -- a diferenca e do
+    instrumento, nao do alvo. Deixa-lo votar no baseline faria o app anunciar
+    "o cloaker respondeu diferente para o navegador" toda vez, que e o tipo
+    de falso positivo que destroi a confianca no diagnostico inteiro.
+    """
+    return persona.startswith("navegador:")
+
+
+def tem_conteudo(probes: list[Probe]) -> bool:
+    """Alguma persona trouxe pagina de verdade (nao challenge, nao erro)?"""
+    return any(p.ok and not p.is_challenge and p.status and p.status < 400
+               for p in probes)
+
+
 def probe_url(url: str, proxy: str | None = None, timeout: int = 25,
               personas: list[Persona] | None = None, delay: float = 0.4,
-              on_progress=None) -> list[Probe]:
+              on_progress=None, navegador: str = "nao",
+              perfil: str = "probe") -> list[Probe]:
     """Roda as personas em SEQUENCIA.
 
     Sequencial de proposito: nove requisicoes simultaneas do mesmo IP e um
     burst, e burst e exatamente o padrao que WAF classifica como bot. O ganho
     de tempo nao compensa contaminar o proprio experimento.
+
+    `navegador` acrescenta o estagio [5] como mais UMA persona, no fim:
+      "nao"    -- so HTTP (padrao: o navegador custa segundos, nao milissegundos)
+      "auto"   -- so quando nenhuma persona HTTP trouxe pagina, que e a
+                  assinatura de parede de JS -- o unico caso em que o
+                  navegador tem chance de ver algo novo
+      "sempre" -- sempre, para comparar HTTP contra navegador de proposito
     """
     proxy = normalize_proxy(proxy)
     out: list[Probe] = []
     chosen = personas or PERSONAS
+    total = len(chosen) + (1 if navegador in ("auto", "sempre") else 0)
     for i, p in enumerate(chosen):
         if on_progress:
-            on_progress(i, len(chosen), p)
+            on_progress(i, total, p)
         out.append(run_persona(url, p, proxy, timeout))
         if delay and i < len(chosen) - 1:
             time.sleep(delay)
+
+    if navegador == "sempre" or (navegador == "auto" and not tem_conteudo(out)):
+        from .navegador import run_navegador
+        if on_progress:
+            on_progress(len(chosen), total,
+                        Persona(name=f"navegador:{perfil}", impersonate=None,
+                                note="Chromium real, para parede de JS."))
+        out.append(run_navegador(url, proxy, timeout * 1000, perfil))
     return out
 
 
@@ -203,7 +298,7 @@ def to_scan_results(url: str, probes: list[Probe], stage: str,
                     proxy: str | None, ad_id: str | None = None) -> list[ScanResult]:
     """Converte para o contrato da secao 10, ja com veredito por persona."""
     content = [p for p in probes if p.ok and not p.is_challenge
-               and p.status and p.status < 400]
+               and p.status and p.status < 400 and not e_navegador(p.persona)]
     # Baseline = a pagina que a MAIORIA recebeu. Secao 6: essa e a white page.
     # Quem foge dela E tem sinal de funil e candidato a money page.
     counts: dict[str, int] = {}
@@ -236,6 +331,11 @@ def to_scan_results(url: str, probes: list[Probe], stage: str,
             # Terminou no site de outra pessoa e sem sinal de funil: isto e a
             # saida de rejeicao do cloaker, nao a money page.
             verdict = "white"
+        elif e_navegador(p.persona):
+            # Sem sinal de funil e sem despejo. Comparar o hash dele com o
+            # baseline nao diz nada (ver e_navegador), entao o honesto e
+            # registrar que nao da para concluir -- e nao fingir divergencia.
+            verdict = "unknown"
         elif baseline and p.body_sha != baseline:
             verdict = "unknown"  # divergiu, mas sem sinal de funil: so anota
         else:
@@ -244,6 +344,12 @@ def to_scan_results(url: str, probes: list[Probe], stage: str,
         sinais = p.signals + p.values
         if fora:
             sinais = sinais + [f"bounced_offsite:{fora}"]
+        # 407 nao vem do alvo: vem do PROXY (pacote expirado, credencial
+        # recusada, cota estourada). Sem marcar isso, o relatorio le "4xx em
+        # toda persona" e conclui "URL errada" -- diagnostico confiante e
+        # errado, sobre um alvo que nem chegou a ser tocado.
+        if p.status == 407:
+            sinais = sinais + ["proxy_recusou"]
 
         results.append(ScanResult(
             target=url, stage=stage, source=p.persona, ad_id=ad_id,
@@ -296,8 +402,9 @@ def robustness(results: list[ScanResult],
 
     # Baseline = a pagina que a MAIORIA recebeu (a safe page).
     from collections import Counter
-    contagem = Counter(r.body_sha for r in content)
-    baseline = contagem.most_common(1)[0][0]
+    contagem = Counter(r.body_sha for r in content
+                       if not e_navegador(r.source))
+    baseline = contagem.most_common(1)[0][0] if contagem else content[0].body_sha
 
     # Vazamento: persona que recebeu money page (a oferta escapou para ela).
     leaks = [r.source for r in content if r.verdict == "money"]

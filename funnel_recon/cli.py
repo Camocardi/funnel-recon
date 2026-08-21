@@ -13,7 +13,8 @@ from pathlib import Path
 from . import db
 from .collect.normalize import domain_histogram, load_export, pick_probe_targets
 from .osint.runner import SOURCES, normalize_targets, osint_many
-from .probe.engine import preflight, probe_url, to_scan_results
+from .probe.engine import (preflight, preflight_dns, probe_url,
+                           to_scan_results)
 from .probe.personas import PERSONAS, by_name
 from .report import (PREFLIGHT_MSG, render, render_collect, render_feed,
                      render_probe, render_robustness)
@@ -81,7 +82,7 @@ def cmd_matrix(args) -> int:
     from .probe.engine import probe_url, robustness, to_scan_results
 
     url = args.url
-    warns = preflight(url)
+    warns = preflight(url) + preflight_dns(url)
     if warns and "url_e_raiz" in warns and not args.force:
         print(PREFLIGHT_MSG, file=sys.stderr)
         return 2
@@ -191,7 +192,8 @@ def cmd_page(args) -> int:
         print(f"\n=== {fp['source']} ===")
         if fp.get("title"):
             print(f"  titulo   : {fp['title']}")
-        for campo, rotulo in (("video", "video VSL"), ("product_ids", "produto"),
+        for campo, rotulo in (("video", "video VSL"), ("accounts", "conta VSL"),
+                              ("product_ids", "produto"),
                               ("checkouts", "checkout"), ("funnels", "funil"),
                               ("pixels", "pixel")):
             for v in fp.get(campo, []):
@@ -301,11 +303,26 @@ def cmd_import(args) -> int:
 
 def cmd_probe(args) -> int:
     """[3] Dispara a URL com varias personas e diz qual camada filtra."""
+    from . import proxy_salvo
+
     url = args.url
-    warns = preflight(url)
+    # O proxy salvo entra sozinho. Colar a string a mao em todo comando foi a
+    # origem de erro mais frequente na pratica (esquema errado, letra trocada,
+    # `sessid` novo do painel trocando o IP entre rodadas) -- e todos eles se
+    # disfarcam de "o alvo bloqueou".
+    if args.sem_proxy:
+        args.proxy = None
+    elif not args.proxy:
+        args.proxy = proxy_salvo.carregar()
+
+    # preflight e puro; preflight_dns consulta a rede. Juntos aqui porque para
+    # quem roda o comando os dois sao "o que da para saber antes de gastar
+    # requisicao".
+    warns = preflight(url) + preflight_dns(url)
     for w in warns:
         print(PREFLIGHT_MSG.get(w, w))
-    if "url_e_raiz" in warns and not args.force:
+    bloqueios = [w for w in ("dominio_nao_resolve", "url_e_raiz") if w in warns]
+    if bloqueios and not args.force:
         print("\nAbortado antes de gastar requisicao. Use --force para rodar assim mesmo.")
         return 2
     if warns:
@@ -317,15 +334,23 @@ def cmd_probe(args) -> int:
               file=sys.stderr)
         return 2
 
+    timeout = args.timeout or (45 if args.proxy else 25)
     print(f"alvo  : {url}")
-    print(f"proxy : {args.proxy or 'NENHUM (seu IP real)'}")
+    print(f"proxy : {proxy_salvo.mascarar(args.proxy) if args.proxy else 'NENHUM (seu IP real)'}")
     print(f"testes: {len(personas)}\n")
 
     def progress(i, total, p):
         print(f"  -> [{i+1}/{total}] {p.name} ...", flush=True)
 
-    probes = probe_url(url, proxy=args.proxy, timeout=args.timeout,
-                       personas=personas, delay=args.delay, on_progress=progress)
+    if args.navegador != "nao" and args.perfil == "fb":
+        print("  aviso: o perfil 'fb' esta logado no Meta. Cookie e por dominio,\n"
+              "  entao ele NAO ajuda a passar cloaker de terceiro -- e faz o pixel\n"
+              "  do alvo te ver logado. Use --perfil probe salvo se o alvo for o\n"
+              "  proprio Meta.\n")
+
+    probes = probe_url(url, proxy=args.proxy, timeout=timeout,
+                       personas=personas, delay=args.delay, on_progress=progress,
+                       navegador=args.navegador, perfil=args.perfil)
     print(render_probe(url, probes, args.proxy, warns))
 
     if not args.no_db:
@@ -362,14 +387,31 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("probe", help="[3] testar uma URL com varias personas")
     p.add_argument("url", help="URL COMPLETA, com caminho e fbclid")
-    p.add_argument("--proxy", help="http://user:pass@host:porta ou socks5://...")
+    p.add_argument("--proxy", help="http://user:pass@host:porta ou a string "
+                                   "unica do painel. Omitido, usa o que estiver "
+                                   "salvo em `funnel_recon proxy`")
+    p.add_argument("--sem-proxy", action="store_true", dest="sem_proxy",
+                   help="ignorar o proxy salvo e sair pelo IP daqui")
     p.add_argument("--personas", help="subconjunto, separado por virgula")
-    p.add_argument("--timeout", type=int, default=25)
+    p.add_argument("--timeout", type=int, default=None,
+                   help="segundos por persona (padrao: 25, ou 45 com --proxy, "
+                        "porque proxy residencial movel tem latencia alta)")
     p.add_argument("--delay", type=float, default=0.4,
                    help="pausa entre personas (evita parecer burst pro WAF)")
     p.add_argument("--ad-id", help="ligar o resultado a um anuncio ja importado")
     p.add_argument("--force", action="store_true",
                    help="rodar mesmo com a URL sendo a raiz do dominio")
+    p.add_argument("--navegador", choices=("nao", "auto", "sempre"), default="nao",
+                   help="[5] Chromium real como persona extra: 'auto' so quando "
+                        "nenhuma persona HTTP trouxe pagina (parede de JS)")
+    p.add_argument("--perfil", choices=("probe", "fb", "nenhum"), default="probe",
+                   help="perfil do navegador. 'probe' (padrao): perfil proprio "
+                        "que ACUMULA cookie do alvo -- guarda o cf_clearance do "
+                        "Cloudflare, entao a proxima visita nao bate na parede. "
+                        "'nenhum': primeira visita sempre, que e a condicao do "
+                        "visitante real vindo do anuncio -- use quando quiser o "
+                        "experimento limpo. 'fb': o perfil logado no Meta, so "
+                        "util se o ALVO for pagina do Meta")
     p.add_argument("--db")
     p.add_argument("--no-db", action="store_true")
     p.set_defaults(func=cmd_probe)
@@ -408,6 +450,26 @@ def build_parser() -> argparse.ArgumentParser:
                          "(e a mesma VSL ou uma nova?)")
     pg.set_defaults(func=cmd_page)
 
+    px = sub.add_parser("proxy", help="guardar o proxy uma vez, em vez de "
+                                      "colar a string em todo comando")
+    px.add_argument("--salvar", metavar="STRING",
+                    help="aceita 'host:porta:user:senha' (a string unica do "
+                         "painel) ou 'http://user:senha@host:porta'")
+    px.add_argument("--testar", action="store_true",
+                    help="consulta real: mostra IP, ASN e regiao de saida")
+    px.add_argument("--esquecer", action="store_true")
+    px.set_defaults(func=cmd_proxy)
+
+    v = sub.add_parser("vsl", help="[5c] marcar VSLs que voce ja conhece "
+                                   "(a antiga/saturada, a isca)")
+    v.add_argument("--marcar", metavar="ID",
+                   help="id do player ou do video (NAO o da conta)")
+    v.add_argument("--rotulo", default="antiga/saturada",
+                   help="como chamar essa VSL no relatorio")
+    v.add_argument("--nota", default="", help="lembrete livre")
+    v.add_argument("--esquecer", metavar="ID", help="tirar um id da lista")
+    v.set_defaults(func=cmd_vsl)
+
     a = sub.add_parser("app", help="abrir a interface (modo normal de uso)")
     a.add_argument("--host", default="127.0.0.1")
     a.add_argument("--port", type=int, default=8765)
@@ -426,6 +488,74 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
+def cmd_proxy(args) -> int:
+    """Guarda, mostra e testa o proxy padrao."""
+    from . import proxy_salvo
+
+    if args.esquecer:
+        print("esquecido." if proxy_salvo.esquecer() else "nao havia proxy salvo.")
+        return 0
+
+    if args.salvar:
+        try:
+            v = proxy_salvo.salvar(args.salvar)
+        except ValueError as e:
+            print(f"nao consegui entender essa string: {e}", file=sys.stderr)
+            return 2
+        print(f"salvo: {proxy_salvo.mascarar(v)}")
+        if not v.startswith("http"):
+            print("  aviso: esquema nao-HTTP. A persona de navegador nao aplica\n"
+                  "  credencial em SOCKS5 -- se o endpoint aceitar HTTP, prefira.")
+
+    atual = proxy_salvo.carregar()
+    if not atual:
+        print("nenhum proxy salvo.\n"
+              "  funnel_recon proxy --salvar 'host:porta:usuario:senha' --testar")
+        return 0
+    print(f"proxy atual: {proxy_salvo.mascarar(atual)}")
+
+    if args.testar:
+        print("testando...", flush=True)
+        try:
+            d = proxy_salvo.testar(atual)
+        except Exception as e:
+            print(f"  FALHOU: {type(e).__name__}: {str(e)[:140]}", file=sys.stderr)
+            return 1
+        print(f"  saida  : {d.get('ip')}  {d.get('org', '')}")
+        print(f"  local  : {d.get('city', '')}/{d.get('region', '')} "
+              f"{d.get('country', '')}")
+    return 0
+
+
+def cmd_vsl(args) -> int:
+    """Lista e mantem as VSLs ja conhecidas.
+
+    Sem argumento nenhum, lista -- e o uso mais comum: "o que eu ja sei?".
+    """
+    from . import conhecidas
+
+    if args.esquecer:
+        print("esquecida." if conhecidas.esquecer(args.esquecer)
+              else "esse id nao estava na lista.")
+        return 0
+
+    if args.marcar:
+        d = conhecidas.marcar(args.marcar, args.rotulo, args.nota)
+        print(f"marcada: {args.marcar.strip().lower()}  ({d['rotulo']})")
+
+    itens = conhecidas.listar()
+    if not itens:
+        print("nenhuma VSL marcada ainda.\n"
+              "  funnel_recon vsl --marcar <id do player> --rotulo 'antiga/saturada'\n"
+              "  o id sai do relatorio: e o segmento /players/<id>, nunca o da conta.")
+        return 0
+    print(f"\n{len(itens)} VSL(s) conhecida(s):")
+    for vsl_id, d in itens:
+        print(f"  {vsl_id}  {d.get('rotulo', ''):<18} {d.get('marcada_em', '')[:10]}"
+              + (f"  -- {d['nota']}" if d.get("nota") else ""))
+    return 0
+
+
 def cmd_app(args) -> int:
     """Abre a interface. E este o modo normal de usar."""
     from .web.app import serve
@@ -437,40 +567,3 @@ def cmd_app(args) -> int:
     except KeyboardInterrupt:
         print("\nencerrado.")
     return 0
-
-# No arquivo cli.py, adicione este comando
-
-@cli.command()
-@click.argument("url")
-@click.option("--proxy", help="Proxy: socks5://user:pass@host:porta")
-@click.option("--force-browser", is_flag=True, help="Forçar uso de navegador real")
-@click.option("--no-fallback", is_flag=True, help="Desabilitar fallback para navegador")
-def probe(url, proxy, force_browser, no_fallback):
-    """Sonda uma URL real com fallback para navegador se detectar despejo."""
-    from funnel_recon.probe import probe_url
-    
-    result = probe_url(
-        url=url,
-        proxy=proxy,
-        use_js_fallback=not no_fallback,
-        force_browser=force_browser,
-    )
-    
-    # Exibe resultado formatado
-    print("\n" + "="*60)
-    print("📊 RESULTADO DA PROBE")
-    print("="*60)
-    print(f"URL: {url}")
-    print(f"Proxy: {proxy or 'Nenhum'}")
-    print(f"Método usado: {result.get('method', 'desconhecido')}")
-    print(f"Despejo? {'SIM' if result.get('bounced') else 'NÃO'}")
-    if result.get('bounce_reason'):
-        print(f"Motivo do despejo: {result['bounce_reason']}")
-    
-    # Mostra trecho do HTML
-    html = result.get('html', '')
-    print(f"\n📄 HTML (primeiros 500 caracteres):")
-    print("-"*60)
-    print(html[:500])
-    print("-"*60)
-    print(f"Tamanho total: {len(html):,} caracteres")

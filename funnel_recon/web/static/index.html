@@ -97,6 +97,9 @@
   .verdict.money{border-color:var(--ok)} .verdict.white,.verdict.challenge{border-color:var(--warn)}
   .verdict.error{border-color:var(--bad)}
   .verdict.criativo{border-color:var(--ok)}
+  .verdict.isca{border-color:var(--warn)}
+  .vsl-old{color:var(--warn);font-size:13px;margin:2px 0 6px}
+  .vsl-new{color:var(--ok);font-size:13px;margin:2px 0 6px}
   .verdict .tag{font-size:12px;letter-spacing:.9px;text-transform:uppercase;color:var(--dim)}
   .verdict h2{font-size:19px;margin:7px 0 11px;line-height:1.35}
   .verdict p{color:#c3cbdd;font-size:14.5px}
@@ -147,6 +150,15 @@
         </div>
       </fieldset>
       <fieldset>
+        <legend>Quais anúncios</legend>
+        <div class="seg" id="segStatus">
+          <label><input type="radio" name="status" value="all" checked>
+            <span>Ativos e encerrados</span></label>
+          <label><input type="radio" name="status" value="active">
+            <span>Só os no ar</span></label>
+        </div>
+      </fieldset>
+      <fieldset>
         <legend>Quantos anúncios</legend>
         <select id="maxAds">
           <option value="100">100</option>
@@ -167,7 +179,10 @@
   <p class="hint">Uma janela do navegador vai abrir para coletar os anúncios.
      Na primeira vez você precisa fazer login no Facebook dentro dela — depois
      disso ele lembra.</p>
-  <p class="hint"><b>Só o funil</b> pula o download das imagens e vai direto
+  <p class="hint"><b>Ativos e encerrados</b> é o padrão porque campanha morta costuma ficar mal
+    configurada e vazar a oferta. Mas em página com anos de histórico a rolagem
+    inteira se gasta no morto — se a pergunta é <i>o que está rodando agora</i>,
+    marque <b>Só os no ar</b>. <b>Só o funil</b> pula o download das imagens e vai direto
      atrás do destino. <b>Só os criativos</b> não sonda o site do alvo — ou
      seja, não expõe o seu IP a ele. Número menor de anúncios termina mais
      rápido; para página muito grande, prefira filtrar a busca na própria
@@ -286,9 +301,16 @@ $("#f").addEventListener("submit", ev => {
   // Proxy é opcional: preenchido, a probe inteira sai por ele; vazio, roda
   // igual a hoje (IP da máquina). O backend já trata proxy=None sozinho.
   const proxy = ($("#proxy").value || "").trim();
+  // NAO chamar de `status`: existe uma funcao status() neste arquivo, e uma
+  // const de mesmo nome no mesmo escopo poe a funcao em zona morta temporal
+  // -- a chamada status("abrindo...") acima passa a lancar ReferenceError e a
+  // funcao morre antes de abrir o EventSource. Sintoma: relogio andando,
+  // texto parado em "iniciando...", nenhuma requisicao, nenhum navegador.
+  const quaisAnuncios = document.querySelector('input[name="status"]:checked').value;
   src = new EventSource("/api/analisar?url=" + encodeURIComponent(url)
         + "&modo=" + encodeURIComponent(modo)
         + "&max_ads=" + encodeURIComponent(maxAds)
+        + "&status=" + encodeURIComponent(quaisAnuncios)
         + (proxy ? "&proxy=" + encodeURIComponent(proxy) : ""));
 
   src.onmessage = e => {
@@ -332,7 +354,9 @@ const STATUS = {
 const LIVE = {
   abrindo: () => "abrindo a Biblioteca...",
   coletando: d => `${d.ads} anúncios capturados`,
-  rolando: d => `rolando a página — ${d.ads} anúncios`,
+  rolando: d => `rolando a página — ${d.ads} anúncios`
+                + (d.mb ? ` · ${d.mb} MB baixados` : ""),
+  rede: d => `${d.mb} MB de internet nesta coleta (${d.kb_por_anuncio} KB por anúncio)`,
   fim_da_lista: d => `fim da lista: ${d.ads} anúncios`,
   parcial: d => `${d.ads} anúncios — ${MOTIVO[d.motivo] || "coleta interrompida"}`,
   rolagem_falhou: d => `a página travou com ${d.ads} anúncios — salvando o que deu`,
@@ -400,7 +424,8 @@ function fail(msg) {
 }
 
 const ROTULO = {
-  money: "Funil encontrado", white: "Travado", challenge: "Barrado por WAF",
+  money: "Funil encontrado", isca: "Só a isca vazou",
+  white: "Travado", challenge: "Barrado por WAF",
   criativo: "Criativo trocado", error: "Erro", unknown: "Sem conclusão",
 };
 
@@ -442,19 +467,60 @@ function finish(r) {
     h += `</div>`;
   }
 
+  if (r.rede && r.rede.bytes) {
+    const mb = r.rede.bytes / 1048576;
+    const tipos = Object.entries(r.rede.por_tipo || {})
+      .sort((a, b) => b[1] - a[1]).slice(0, 5);
+    h += `<div class="card"><h4>Internet gasta na coleta</h4>
+      <p class="hint"><b>${mb.toFixed(1)} MB</b> pela sua conexão local — a coleta
+      da Biblioteca <b>não passa pelo proxy</b>, que só é usado no teste de acesso.</p>`;
+    for (const [t, n] of tipos)
+      h += `<div class="hint">${esc(t)}: ${(n / 1048576).toFixed(1)} MB</div>`;
+    h += `</div>`;
+  }
+
   const laterais = (r.portas_laterais || []).filter(x => x.verdict === "money");
   if (laterais.length) {
-    h += `<div class="card"><h4>Oferta encontrada por porta lateral</h4>
-      <p class="hint">O cloaker protege o endereço do anúncio, mas o domínio
-      raiz respondeu normalmente daqui — sem proxy, sem furar filtro. Guarde
-      agora: é erro de configuração e pode ser fechado a qualquer momento.</p>`;
+    const sabidas = r.vsls_conhecidas || {};
+    // A porta lateral abriu -- mas serviu VSL nova ou a velha? Operador que já
+    // foi investigado deixa a saturada exposta de propósito; sem esta marca o
+    // relatório dava a busca por encerrada em cima da isca.
+    const idsDe = sg => sg.filter(s => s.startsWith("vsl_video:") ||
+                                       s.startsWith("vsl_player_id:"))
+                          .map(s => s.split(":").slice(1).join(":").toLowerCase());
+    const inedita = laterais.some(r2 => idsDe(r2.signals).some(i => !sabidas[i]));
+
+    h += `<div class="card"><h4>Oferta encontrada por porta lateral</h4>` +
+      (inedita
+        ? `<p class="hint">O cloaker protege o endereço do anúncio, mas o domínio
+           raiz respondeu normalmente daqui — sem proxy, sem furar filtro. Guarde
+           agora: é erro de configuração e pode ser fechado a qualquer momento.</p>`
+        : `<p class="hint">A porta lateral abriu, mas <b>toda VSL servida aqui você
+           já conhecia</b>. Esse é o padrão de quem já foi investigado: a oferta
+           velha fica exposta para dar a busca por encerrada, enquanto o tráfego
+           aprovado do anúncio segue para outra. O destino real continua atrás do
+           cloaker.</p>`);
+
     for (const r2 of laterais) {
       const url = (r2.signals.find(s => s.startsWith("sidedoor_url:")) || "").slice(12);
       const titulo = (r2.signals.find(s => s.startsWith("sidedoor_title:")) || "").slice(14);
       h += `<div class="alvo">${esc(url)}${titulo ? " — " + esc(titulo) : ""}</div>`;
+      for (const id of idsDe(r2.signals)) {
+        const k = sabidas[id];
+        h += k
+          ? `<div class="vsl-old">⚠ VSL já conhecida — ${esc(k.rotulo || "conhecida")}${
+              k.fonte === "historico"
+                ? ` (vista em ${esc((k.visto_em || "").slice(0, 10))}, alvo ${esc(k.alvo || "")})`
+                : ` (marcada por você em ${esc((k.marcada_em || "").slice(0, 10))})`
+              } — <code>${esc(id)}</code></div>`
+          : `<div class="vsl-new">★ VSL inédita — <code>${esc(id)}</code></div>`;
+      }
       for (const s of r2.signals) {
         if (s.startsWith("checkout:"))
           h += `<div class="leak">checkout: ${esc(s.slice(9))}</div>`;
+        if (s.startsWith("vsl_account:"))
+          h += `<div class="hint">conta do operador: ${esc(s.slice(12))} — igual em
+                todas as VSLs desse dono, não serve para diferenciar uma da outra</div>`;
         if (s.startsWith("vsl_player:"))
           h += `<div class="hint" style="word-break:break-all">player VSL: ${esc(s.slice(11))}</div>`;
       }

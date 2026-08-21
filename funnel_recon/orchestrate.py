@@ -15,12 +15,13 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from . import db
+from . import conhecidas, db
 from .collect.normalize import (domain_histogram, normalize_row,
                                 path_histogram, pick_probe_targets)
 from .creative import hash_many, temporal_diffs
 from .osint.runner import normalize_targets, osint_many
-from .probe.engine import preflight, probe_url, to_scan_results
+from .probe.engine import (preflight, preflight_dns, probe_url,
+                           to_scan_results)
 from .sidedoor import probe_sidedoors
 from .schema import Ad, ScanResult
 from .signals import cloaker_platform
@@ -80,11 +81,19 @@ class Findings:
     # afirmar coisa que ele nao pode saber.
     truncated: bool = False
     truncated_reason: str = ""
+    # Internet gasta na coleta, medida no fio (ver collect/browser.py). A
+    # coleta roda pela conexao local: ela NAO passa pelo proxy, que so e usado
+    # no probe.
+    bytes_coleta: int = 0
+    rede_por_tipo: dict = field(default_factory=dict)
     creative_diffs: list = field(default_factory=list)  # CreativeDiff, kind="tempo"
     creative_hashed: int = 0
     # Paginas abertas por porta lateral (apex, inventario do CMS). Ficam fora
     # de `probes` porque nao sao tentativas contra o filtro: sao outra porta.
     sidedoors: list = field(default_factory=list)
+    # id da VSL -> como ela ja e conhecida (marcada a mao ou vista no
+    # historico). Vazio quando tudo que a porta lateral serviu e inedito.
+    vsls_conhecidas: dict = field(default_factory=dict)
     creative_compared: int = 0   # quantos tinham hash antigo para comparar
     mode: str = "tudo"
     verdict: str = "unknown"
@@ -110,6 +119,9 @@ async def run_pipeline(
     max_seconds: float | None = None,
     max_creative_hashes: int = MAX_CREATIVE_HASHES,
     mode: str = "tudo",
+    # "all" = ativos + encerrados (padrao); "active" = so o que esta no ar.
+    # Ver collect.browser.with_all_statuses para o porque de existirem os dois.
+    status: str = "all",
 ) -> Findings:
     say = progress or _noop
     mode = mode if mode in MODES else "tudo"
@@ -126,9 +138,12 @@ async def run_pipeline(
             if msg == "parcial":
                 f.truncated = True
                 f.truncated_reason = data.get("motivo", "")
+            if msg == "rede":
+                f.bytes_coleta = data.get("bytes", 0)
+                f.rede_por_tipo = data.get("por_tipo", {})
             say("coletar", msg, data)
 
-        limites = {}
+        limites = {"status": status}
         if max_ads is not None:
             limites["max_ads"] = max_ads
         if max_seconds is not None:
@@ -225,7 +240,7 @@ async def run_pipeline(
         motivo = "voce pediu so os criativos"
         say("osint", "pulado", {"motivo": motivo})
         say("probe", "pulado", {"motivo": motivo})
-        _decide(f, proxy)
+        _decide(f, proxy, conn)
         return f
 
     # ---- [2] OSINT --------------------------------------------------------
@@ -258,10 +273,22 @@ async def run_pipeline(
                        "devolveu o campo.")
     else:
         for url in urls:
-            warns = preflight(url)
+            warns = preflight(url) + preflight_dns(url)
             say("probe", "inicio", {"url": url, "avisos": warns})
+            # Dominio morto custa 9 personas x timeout do proxy. Medido numa
+            # rodada real: 281 dos 378 segundos totais foram gastos assim, num
+            # alvo que o DNS nem resolve. O CLI ja abortava; aqui o aviso era
+            # so impresso. Anuncio ativo na Biblioteca com dominio derrubado e
+            # comum, entao isto acontece com frequencia.
+            if "dominio_nao_resolve" in warns:
+                say("probe", "pulado", {"motivo": f"o dominio de {url} nao "
+                                                  f"existe mais (NXDOMAIN)"})
+                continue
+            # Proxy residencial movel tem latencia alta e instavel: com 25s
+            # foi comum perder persona por timeout, e persona perdida e
+            # variavel perdida no diagnostico.
             probes = await asyncio.to_thread(
-                probe_url, url, proxy, 25, None, 0.4,
+                probe_url, url, proxy, 45 if proxy else 25, None, 0.4,
                 lambda i, total, p: say("probe", "persona",
                                         {"url": url, "i": i + 1, "total": total,
                                          "persona": p.name}),
@@ -292,7 +319,7 @@ async def run_pipeline(
     elif chegou:
         say("sidedoor", "pulado", {"motivo": "a oferta ja apareceu no probe"})
 
-    _decide(f, proxy)
+    _decide(f, proxy, conn)
     _nota_criativo(f)
     return f
 
@@ -314,7 +341,7 @@ def _nota_criativo(f: Findings) -> None:
         f"-- ver o cartao mais abaixo.")
 
 
-def _decide(f: Findings, proxy: str | None) -> None:
+def _decide(f: Findings, proxy: str | None, conn=None) -> None:
     """O classificador [6], versao honesta.
 
     Regra que atravessa o brief inteiro: quando a cascata nao resolveu, o
@@ -386,6 +413,19 @@ def _decide(f: Findings, proxy: str | None) -> None:
         return
 
     if not content and errors:
+        # Antes de culpar a URL: o 407 e do proxy, nao do alvo. O alvo pode
+        # nem ter sido tocado.
+        if any("proxy_recusou" in r.signals for r in errors):
+            f.verdict = "error"
+            f.blocked_by = "proxy"
+            f.headline = "O proxy recusou as requisicoes (HTTP 407)."
+            f.next_step = (
+                "407 e o proxy respondendo, nao o alvo -- pacote expirado, "
+                "cota esgotada ou credencial recusada. O alvo pode nem ter "
+                "sido tocado, entao nao ha nada a concluir sobre cloaker. "
+                "Confira o saldo e o status do pacote no painel do provedor e "
+                "rode de novo.")
+            return
         f.verdict = "error"
         f.blocked_by = "url"
         f.headline = "Todas as respostas foram erro."
@@ -402,8 +442,36 @@ def _decide(f: Findings, proxy: str | None) -> None:
                             if v.startswith("checkout:")})
         paginas = [v.split(":", 1)[1] for r in laterais for v in r.signals
                    if v.startswith("sidedoor_url:")]
-        f.verdict = "money"
+
+        # A porta lateral abriu -- mas serviu o que? Um operador que ja foi
+        # investigado deixa a VSL velha exposta no dominio raiz de proposito:
+        # quem cai nela acha que venceu o cloaker e para de procurar. Se TODA
+        # VSL que vazou aqui ja e conhecida, o que esta na mao e a isca, e o
+        # destino real do anuncio continua fechado.
+        ids = sorted({i for r in laterais for i in conhecidas.ids_de(r.signals)})
+        f.vsls_conhecidas = conhecidas.avaliar(ids, conn)
+        so_conhecidas = bool(ids) and len(f.vsls_conhecidas) == len(ids)
+
         f.blocked_by = None
+        if so_conhecidas:
+            rotulos = sorted({d.get("rotulo", "conhecida")
+                              for d in f.vsls_conhecidas.values()})
+            f.verdict = "isca"
+            f.headline = ("A porta lateral abriu, mas serviu a VSL que voce ja "
+                          "tinha (" + ", ".join(rotulos) + ").")
+            f.next_step = (
+                f"O dominio raiz respondeu sem cloaker, so que a VSL de la nao e "
+                f"nova: {', '.join(ids)} ja constava. Isso e o padrao de quem ja "
+                f"foi investigado -- a oferta velha fica exposta para dar por "
+                f"encerrada a busca, enquanto o trafego aprovado do anuncio segue "
+                f"para outra. O destino real continua atras do cloaker. "
+                + (f"Checkout desta aqui: {', '.join(checkouts[:3])}. " if checkouts else "")
+                + "Proximo passo: HTML salvo por alguem com acesso legitimo no "
+                  "pais-alvo (Cmd+S -> pagina completa) e `page` para comparar; "
+                  "ou proxy residencial no pais do anuncio.")
+            return
+
+        f.verdict = "money"
         f.headline = ("Cheguei na oferta por fora do cloaker: "
                       + (checkouts[0] if checkouts else paginas[0]))
         f.next_step = (
@@ -411,6 +479,7 @@ def _decide(f: Findings, proxy: str | None) -> None:
             f"raiz ficou aberto -- {len(laterais)} pagina(s) com a oferta "
             f"responderam normalmente daqui. "
             + (f"Checkout: {', '.join(checkouts[:3])}. " if checkouts else "")
+            + (f"VSL inedita. " if ids else "")
             + "Nao foi preciso furar filtro nenhum: e um erro de configuracao "
               "do operador, e ele pode fechar isso a qualquer momento -- "
               "guarde as paginas agora.")

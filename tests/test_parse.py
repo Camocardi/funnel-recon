@@ -115,6 +115,16 @@ check("troca o valor", "active_status=all" in with_all_statuses(BASE + "&active_
 # URL que nao e do Meta nao e nossa pra reescrever
 check("host de fora intacto", with_all_statuses("https://x.shop/p?a=1"), "https://x.shop/p?a=1")
 
+# "so os no ar": pagina com anos de historico gasta a rolagem inteira em
+# campanha morta, e a VSL que se acha e a aposentada. Quem pergunta "o que
+# roda AGORA" precisa do filtro respeitado.
+check("status=active respeita o filtro do usuario",
+      "active_status=active" in with_all_statuses(BASE, "active"), True)
+check("status=active nao duplica o parametro",
+      with_all_statuses(BASE + "&active_status=all", "active").count("active_status"), 1)
+check("status=active preserva o resto",
+      "view_all_page_id=123" in with_all_statuses(BASE, "active"), True)
+
 if failures:
     print(f"FALHOU ({len(failures)}):")
     for f in failures:

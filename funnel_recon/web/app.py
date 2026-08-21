@@ -33,7 +33,8 @@ async def index():
 
 @app.get("/api/analisar")
 async def analisar(url: str, proxy: str | None = None, modo: str = "tudo",
-                   max_ads: int | None = None, max_seconds: float | None = None):
+                   max_ads: int | None = None, max_seconds: float | None = None,
+                   status: str = "all"):
     """Roda a cascata e transmite cada evento assim que acontece.
 
     `max_ads`/`max_seconds` existem como parametro de query, sem campo na tela:
@@ -61,7 +62,7 @@ async def analisar(url: str, proxy: str | None = None, modo: str = "tudo",
         try:
             f = await run_pipeline(url, progress=progress, proxy=proxy or None,
                                    max_ads=max_ads, max_seconds=max_seconds,
-                                   mode=modo)
+                                   mode=modo, status=status)
             enfileirar({"tipo": "final", "resultado": _serialize(f)})
         except Exception as e:  # nunca deixar a pagina pendurada
             enfileirar({"tipo": "erro", "mensagem": f"{type(e).__name__}: {e}"})
@@ -125,6 +126,10 @@ def _serialize(f) -> dict:
         "osint": {d: [asdict(r) for r in rs] for d, rs in f.osint.items()},
         "probes": {u: [asdict(r) for r in rs] for u, rs in f.probes.items()},
         "portas_laterais": [asdict(r) for r in f.sidedoors],
+        # id da VSL -> como ela ja e conhecida. O front usa para separar a
+        # isca (VSL velha, deixada exposta) da oferta de verdade.
+        "vsls_conhecidas": f.vsls_conhecidas,
+        "rede": {"bytes": f.bytes_coleta, "por_tipo": f.rede_por_tipo},
         "anuncios": [asdict(a) for a in f.ads[:200]],
     }
 

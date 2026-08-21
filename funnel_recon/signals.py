@@ -93,14 +93,37 @@ VALUE_PATTERNS: dict[str, re.Pattern[str]] = {
     "vsl_player": re.compile(
         r'(https?://[^\s"\'<>]*(?:converteai\.net|vturb|pandavideo|'
         r'vslplayer)[^\s"\'<>]*)', re.I),
-    # O ID do video da VSL, no formato do VTurb/converteai. Isto e o que
-    # DIFERENCIA uma VSL da outra: quando o operador troca o video, muda este
-    # id -- e ai da para provar "a VSL que voce ve nao e a que temos" sem
-    # depender de olhar as duas no olho. Foi a pergunta exata que travou a
-    # investigacao: era a VSL nova ou a antiga?
-    "vsl_video": re.compile(
+    # A CONTA do operador no converteai/VTurb -- o UUID logo depois do
+    # dominio. NAO diferencia VSL nenhuma: todas as VSLs do mesmo dono
+    # carregam este mesmo id. Vale por outro motivo, e vale muito: liga
+    # dominios diferentes ao MESMO operador.
+    "vsl_account": re.compile(
         r'(?:converteai\.net|vturb[^"\'<>]*?)/([a-f0-9]{8}-[a-f0-9]{4}-'
         r'[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})', re.I),
+    # O ID do PLAYER, no segmento /players/<id>. Isto sim e o que DIFERENCIA
+    # uma VSL da outra: trocou o video, muda este id -- e ai da para provar
+    # "a VSL que voce ve nao e a que temos" sem olhar as duas no olho. Foi a
+    # pergunta exata que travou a investigacao: era a VSL nova ou a antiga?
+    #
+    # Ja esteve apontado para o UUID da conta, e por isso respondia "mesma
+    # VSL" para duas paginas com videos diferentes do mesmo dono.
+    # O ID do VIDEO: no CDN a midia vem como
+    # `cdn.converteai.net/<conta>/<video>/main.m3u8`. O <conta> e UUID com
+    # hifens, mas o <video> e ObjectId de 24 hex -- NAO e outro UUID. Confundir
+    # os dois formatos fazia esta regex nunca casar com URL real de midia.
+    # Confirmado num player.js de producao:
+    #   cdn.converteai.net/81d625dd-...-1b5e1565068/6a2f12e2d33ef46eda9d9122/main.m3u8
+    # Discriminador mais forte que o id do player: trocou o video, muda aqui.
+    "vsl_video": re.compile(
+        r'converteai\.net/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-'
+        r'[a-f0-9]{12}/([a-f0-9]{16,32})(?=[/?"\'\s]|$)', re.I),
+    # O ID do PLAYER (`/players/<id>`). Discriminador de reserva: o m3u8 do
+    # video costuma ser montado pelo JS em tempo de execucao e nao aparece no
+    # HTML estatico, mas a tag do player sempre aparece. Dois players
+    # diferentes = duas VSLs diferentes.
+    "vsl_player_id": re.compile(
+        r'(?:converteai\.net|vturb)[^\s"\'<>]*?/players/([a-f0-9]{12,32})',
+        re.I),
 }
 
 

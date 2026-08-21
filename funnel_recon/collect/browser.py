@@ -70,13 +70,19 @@ def stop_reason(ads: int, elapsed: float, stagnant: int,
     return None
 
 
-def with_all_statuses(url: str) -> str:
-    """Forca `active_status=all` na URL da Biblioteca.
+def with_all_statuses(url: str, status: str = "all") -> str:
+    """Fixa o `active_status` da URL da Biblioteca.
 
-    A Biblioteca abre em `active_status=active`: sem isto, o coletor so ve a
-    campanha que esta no ar hoje, e o brief (secao 6) manda coletar ativos E
-    inativos. O encerrado e o que mais interessa -- cloaker de campanha morta
-    fica mal configurado e serve a money page pra qualquer um.
+    Por que `all` e o padrao: a Biblioteca abre em `active_status=active`, e
+    so o que esta no ar hoje esconde metade do caso -- o brief (secao 6) manda
+    coletar ativos E inativos, porque cloaker de campanha morta fica mal
+    configurado e serve a money page pra qualquer um.
+
+    Por que virou escolha: numa pagina com anos de historico o custo se
+    inverte. Um alvo real trouxe 2.098 anuncios dos quais 1.995 estavam
+    encerrados havia meses -- a rolagem inteira gasta no morto, e a VSL que se
+    acha e a aposentada. Quando a pergunta e "o que esta rodando AGORA",
+    `status="active"` respeita o filtro que o usuario montou na Biblioteca.
 
     Mexe so no que e do Meta e so no parametro de status: o resto da URL
     (`view_all_page_id`, `country`, `q`) e a busca que o usuario montou.
@@ -90,7 +96,7 @@ def with_all_statuses(url: str) -> str:
         return url
     query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
              if k != "active_status"]
-    query.append(("active_status", "all"))
+    query.append(("active_status", status))
     return urlunparse(parts._replace(query=urlencode(query)))
 
 
@@ -102,6 +108,7 @@ async def collect(
     max_seconds: float = MAX_SECONDS,
     headless: bool = False,
     profile_dir_arg: Path | None = None,
+    status: str = "all",
 ) -> list[dict]:
     from playwright.async_api import async_playwright
 
@@ -124,6 +131,34 @@ async def collect(
             args=["--disable-blink-features=AutomationControlled"],
         )
         page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+
+        # Quanto esta coleta custa de internet, medido de verdade.
+        #
+        # A pergunta e pratica: rolar uma pagina grande da Biblioteca renderiza
+        # o criativo de cada anuncio, e essa MIDIA domina o gasto -- o JSON do
+        # GraphQL, que e o que a gente de fato quer, e a menor parte. Sem o
+        # numero na mao nao da para dizer se cabe numa conexao limitada.
+        #
+        # `encodedDataLength` do CDP e o byte que passou no fio, ja comprimido
+        # e ja com cache aplicado (recurso servido do disco nao conta) -- e por
+        # isso que a medida vem daqui e nao de somar Content-Length.
+        rede = {"bytes": 0, "requisicoes": 0, "por_tipo": {}}
+        _tipos: dict[str, str] = {}
+        cdp = await ctx.new_cdp_session(page)
+        await cdp.send("Network.enable")
+
+        def _viu_resposta(ev):
+            _tipos[ev["requestId"]] = ev.get("type") or "Other"
+
+        def _terminou(ev):
+            n = ev.get("encodedDataLength") or 0
+            rede["bytes"] += n
+            rede["requisicoes"] += 1
+            t = _tipos.pop(ev.get("requestId", ""), "Other")
+            rede["por_tipo"][t] = rede["por_tipo"].get(t, 0) + n
+
+        cdp.on("Network.responseReceived", _viu_resposta)
+        cdp.on("Network.loadingFinished", _terminou)
 
         async def on_response(response):
             nonlocal payloads_seen
@@ -149,7 +184,7 @@ async def collect(
 
         page.on("response", on_response)
 
-        library_url = with_all_statuses(library_url)
+        library_url = with_all_statuses(library_url, status)
         say("abrindo", url=library_url)
         await page.goto(library_url, wait_until="domcontentloaded", timeout=60000)
         await asyncio.sleep(3)
@@ -193,7 +228,8 @@ async def collect(
             else:
                 stagnant = 0
                 last = len(records)
-                say("rolando", ads=len(records), scrolls=scrolls)
+                say("rolando", ads=len(records), scrolls=scrolls,
+                    mb=round(rede["bytes"] / 1_048_576, 1))
 
         # `fim_da_lista` e o unico desfecho que significa "vi a pagina inteira".
         # Todos os outros entregam uma AMOSTRA, e quem for tirar conclusao de
@@ -212,5 +248,7 @@ async def collect(
             "Nenhuma resposta GraphQL capturada. O Meta provavelmente mudou a "
             "rota da Biblioteca; ajuste GRAPHQL_MARKERS em collect/browser.py."
         )
+    say("rede", **rede, mb=round(rede["bytes"] / 1_048_576, 1),
+        kb_por_anuncio=round(rede["bytes"] / max(len(records), 1) / 1024, 1))
     say("pronto", ads=len(records), payloads=payloads_seen)
     return list(records.values())
