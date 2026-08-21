@@ -357,6 +357,8 @@ const LIVE = {
   rolando: d => `rolando a página — ${d.ads} anúncios`
                 + (d.mb ? ` · ${d.mb} MB baixados` : ""),
   rede: d => `${d.mb} MB de internet nesta coleta (${d.kb_por_anuncio} KB por anúncio)`,
+  pagina: d => `lendo a página ${d.i} de ${d.total} do anunciante`,
+  bio: d => `${d.dominios} domínio(s) na bio das páginas — ${d.vivos} no ar`,
   fim_da_lista: d => `fim da lista: ${d.ads} anúncios`,
   parcial: d => `${d.ads} anúncios — ${MOTIVO[d.motivo] || "coleta interrompida"}`,
   rolagem_falhou: d => `a página travou com ${d.ads} anúncios — salvando o que deu`,
@@ -463,6 +465,20 @@ function finish(r) {
       if (vistos.has(v.achado)) continue;
       vistos.add(v.achado);
       h += `<div class="leak">${esc(v.achado)}</div>`;
+    }
+    h += `</div>`;
+  }
+
+  if ((r.bio_dominios || []).length) {
+    const vivos = r.bio_dominios.filter(b => b.resolve);
+    h += `<div class="card"><h4>Domínios declarados pelas páginas do anunciante</h4>
+      <p class="hint">A Biblioteca só mostra o destino do anúncio. A página que
+      veicula tem um campo <b>site</b> próprio, e ele costuma apontar para outro
+      domínio — que não aparece em export nenhum. Domínio morto aqui é ciclo já
+      encerrado; <b>vivo é pista atual</b>.</p>`;
+    for (const b of r.bio_dominios) {
+      h += `<div class="${b.resolve ? "leak" : "hint"}">${b.resolve ? "★ no ar" : "· morto"} —
+        <b>${esc(b.host)}</b> <span class="hint">(${esc(b.nome || b.page_id)})</span></div>`;
     }
     h += `</div>`;
   }

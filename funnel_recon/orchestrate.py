@@ -12,10 +12,12 @@ parede fisica -- precisa de IP no pais-alvo, ou precisa observar o feed real
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from . import conhecidas, db
+from .collect.bio import bio_de_paginas
 from .collect.normalize import (domain_histogram, normalize_row,
                                 path_histogram, pick_probe_targets)
 from .creative import hash_many, temporal_diffs
@@ -86,6 +88,9 @@ class Findings:
     # no probe.
     bytes_coleta: int = 0
     rede_por_tipo: dict = field(default_factory=dict)
+    # Dominio que a PAGINA declara como site proprio. Nao vem da Biblioteca:
+    # `link_url` e o destino do anuncio, a bio e outro dominio. Ver collect/bio.py.
+    bio_dominios: list = field(default_factory=list)
     creative_diffs: list = field(default_factory=list)  # CreativeDiff, kind="tempo"
     creative_hashed: int = 0
     # Paginas abertas por porta lateral (apex, inventario do CMS). Ficam fora
@@ -246,6 +251,25 @@ async def run_pipeline(
     # ---- [2] OSINT --------------------------------------------------------
     hosts = normalize_targets([h for h, _, _ in f.histogram])[:6]
     say("osint", "inicio", {"dominios": hosts})
+
+    # A bio da PAGINA declara um site proprio, que nao e o `link_url` do
+    # anuncio e nao aparece em export nenhum da Biblioteca. Entra no estagio
+    # de OSINT porque e exatamente isso: pegada publica do anunciante.
+    paginas = [pid for pid, _ in Counter(
+        a.page_id for a in f.ads if getattr(a, "page_id", None)).most_common(10)]
+    if paginas:
+        try:
+            f.bio_dominios = await bio_de_paginas(
+                paginas, on_progress=lambda m, d: say("osint", m, d))
+            vivos = [b for b in f.bio_dominios if b["resolve"]]
+            say("osint", "bio", {"paginas": len(paginas),
+                                 "dominios": len(f.bio_dominios),
+                                 "vivos": len(vivos)})
+        except Exception as e:
+            # Exige sessao logada e navegador. Falhar aqui nao pode custar o
+            # resto da cascata -- e um canal a mais, nao o principal.
+            say("osint", "bio_falhou", {"erro": f"{type(e).__name__}: {e}"})
+
     if hosts:
         f.osint = await osint_many(hosts, concurrency=4)
         if save:

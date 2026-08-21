@@ -130,6 +130,7 @@ def _serialize(f) -> dict:
         # isca (VSL velha, deixada exposta) da oferta de verdade.
         "vsls_conhecidas": f.vsls_conhecidas,
         "rede": {"bytes": f.bytes_coleta, "por_tipo": f.rede_por_tipo},
+        "bio_dominios": f.bio_dominios,
         "anuncios": [asdict(a) for a in f.ads[:200]],
     }
 
