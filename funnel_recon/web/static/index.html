@@ -1,0 +1,580 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Funnel Recon</title>
+<style>
+  :root{
+    --bg:#0f1219; --panel:#161a26; --line:#2b3244; --ink:#e8edf7; --dim:#8f9bb5;
+    --accent:#5b8cff; --ok:#3fbf7f; --warn:#e0a33e; --bad:#e05d5d;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);
+    font:15px/1.55 ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif;
+    padding:32px 20px 80px}
+  .wrap{max-width:880px;margin:0 auto}
+  h1{font-size:23px;letter-spacing:-.3px}
+  .sub{color:var(--dim);font-size:14px;margin-top:6px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:20px;margin-top:20px}
+
+  form{display:flex;gap:10px;margin-top:22px;flex-wrap:wrap}
+  input[type=url]{flex:1;min-width:280px;background:#0c0f16;border:1px solid var(--line);
+    color:var(--ink);border-radius:8px;padding:13px 14px;font-size:15px}
+  input[type=url]:focus{outline:none;border-color:var(--accent)}
+  button{background:var(--accent);color:#fff;border:0;border-radius:8px;
+    padding:13px 26px;font-size:15px;font-weight:600;cursor:pointer}
+  button:disabled{opacity:.45;cursor:default}
+  .hint{color:var(--dim);font-size:13px;margin-top:10px}
+
+  .opcoes{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;
+    margin-top:16px}
+  .opcoes fieldset{border:0}
+  .opcoes legend{color:var(--dim);font-size:12px;letter-spacing:.6px;
+    text-transform:uppercase;margin-bottom:7px}
+  .seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg label{padding:9px 14px;font-size:13.5px;color:var(--dim);cursor:pointer;
+    background:#0c0f16;border-right:1px solid var(--line);white-space:nowrap}
+  .seg label:last-child{border-right:0}
+  .seg input{position:absolute;opacity:0;pointer-events:none}
+  .seg input:checked + span{color:#fff}
+  .seg label:has(input:checked){background:var(--accent)}
+  .seg label:has(input:checked) span{color:#fff;font-weight:600}
+  select{background:#0c0f16;border:1px solid var(--line);color:var(--ink);
+    border-radius:8px;padding:9px 12px;font-size:13.5px}
+  select:focus{outline:none;border-color:var(--accent)}
+  .proxin{width:100%;background:#0c0f16;border:1px solid var(--line);
+    color:var(--ink);border-radius:8px;padding:9px 12px;font-size:13px;
+    font-family:ui-monospace,Menlo,monospace}
+  .proxin:focus{outline:none;border-color:var(--accent)}
+
+  .status{display:flex;align-items:center;gap:12px;padding:14px 16px;
+    background:#131826;border:1px solid var(--line);border-radius:9px;
+    margin-bottom:18px}
+  .spin{width:17px;height:17px;border:2.5px solid #39415a;border-top-color:var(--accent);
+    border-radius:50%;flex:none;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .status .txt{flex:1;font-size:14px}
+  .status .clock{color:var(--dim);font-size:13px;
+    font-family:ui-monospace,Menlo,monospace;flex:none}
+  .status.done .spin{border-top-color:var(--ok);animation:none;border-color:var(--ok)}
+  .status.fail .spin{border-color:var(--bad);animation:none}
+  .ghost{background:transparent;border:1px solid var(--line);color:var(--dim);
+    padding:8px 15px;font-size:13px;font-weight:500}
+  .note{background:#1a2030;border-left:3px solid var(--accent);padding:11px 14px;
+    border-radius:6px;font-size:13.5px;color:#c3cbdd;margin-bottom:16px}
+
+  .stage{display:flex;gap:13px;align-items:flex-start;padding:13px 0;
+    border-bottom:1px solid var(--line)}
+  .stage:last-child{border-bottom:0}
+  .dot{width:11px;height:11px;border-radius:50%;background:#394054;margin-top:6px;flex:none}
+  .stage.run .dot{background:var(--accent);animation:pulse 1.1s infinite}
+  .stage.wait .dot{background:#394054}
+  .stage.done .dot{background:var(--ok)}
+  .stage.skip .dot{background:var(--dim)}
+  .stage.fail .dot{background:var(--bad)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+  .stage h3{font-size:15px;font-weight:600}
+  .stage p{color:var(--dim);font-size:13px;margin-top:2px}
+  .stage .live{color:var(--accent);font-size:13px;margin-top:4px;
+    font-family:ui-monospace,Menlo,monospace}
+
+  .caminhos{margin:2px 0 14px 4px;border-left:2px solid var(--line);padding-left:12px}
+  .cam{display:flex;align-items:center;gap:9px;padding:5px 0;flex-wrap:wrap}
+  .cam .p{font-family:ui-monospace,Menlo,monospace;font-size:13px;color:var(--ink)}
+  .cam .qtd{color:var(--dim);font-size:12.5px}
+  .cam .var{font-size:10.5px;letter-spacing:.7px;color:var(--warn);
+    border:1px solid var(--warn);border-radius:4px;padding:1px 5px}
+  .cam .copiar{background:transparent;border:1px solid var(--line);color:var(--dim);
+    font-size:11.5px;padding:3px 9px;border-radius:5px;font-weight:500}
+  .cam .copiar:hover{border-color:var(--accent);color:var(--accent)}
+  .alvo{background:#131826;border:1px solid var(--line);border-radius:8px;
+    padding:12px 14px;margin-top:12px;font-family:ui-monospace,Menlo,monospace;
+    font-size:13.5px;color:var(--accent);word-break:break-all}
+
+  .verdict{border-left:4px solid var(--dim);padding-left:16px}
+  .verdict.money{border-color:var(--ok)} .verdict.white,.verdict.challenge{border-color:var(--warn)}
+  .verdict.error{border-color:var(--bad)}
+  .verdict.criativo{border-color:var(--ok)}
+  .verdict .tag{font-size:12px;letter-spacing:.9px;text-transform:uppercase;color:var(--dim)}
+  .verdict h2{font-size:19px;margin:7px 0 11px;line-height:1.35}
+  .verdict p{color:#c3cbdd;font-size:14.5px}
+
+  .bar{display:flex;align-items:center;gap:11px;margin:7px 0;font-size:14px}
+  .bar .host{width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bar .track{flex:1;height:9px;background:#0c0f16;border-radius:5px;overflow:hidden}
+  .bar .fill{height:100%;background:var(--accent);border-radius:5px}
+  .bar .n{width:78px;text-align:right;color:var(--dim);font-size:13px}
+  .tag-out{color:var(--warn);font-size:11px;font-weight:700}
+
+  .leak{font-family:ui-monospace,Menlo,monospace;font-size:13.5px;color:var(--ok);
+    padding:5px 0;border-bottom:1px solid var(--line)}
+  h4{font-size:13px;text-transform:uppercase;letter-spacing:.9px;color:var(--dim);
+    margin-bottom:12px}
+  table{width:100%;border-collapse:collapse;font-size:13px;
+    font-family:ui-monospace,Menlo,monospace}
+  th,td{text-align:left;padding:6px 9px;border-bottom:1px solid var(--line)}
+  th{color:var(--dim);font-weight:600}
+  .v-money{color:var(--ok)} .v-white{color:var(--dim)}
+  .v-challenge{color:var(--warn)} .v-error{color:var(--bad)}
+  details{margin-top:14px} summary{cursor:pointer;color:var(--accent);font-size:14px}
+  .scroll{overflow-x:auto}
+  .hide{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Funnel Recon</h1>
+  <p class="sub">Cole o link de uma página na Biblioteca de Anúncios do Meta.
+     O resto é automático.</p>
+
+  <form id="f">
+    <input type="url" id="url" required
+      placeholder="https://www.facebook.com/ads/library/?...&view_all_page_id=...">
+    <button id="go">Analisar</button>
+
+    <div class="opcoes">
+      <fieldset>
+        <legend>O que analisar</legend>
+        <div class="seg">
+          <label><input type="radio" name="modo" value="tudo" checked>
+            <span>Funil e criativos</span></label>
+          <label><input type="radio" name="modo" value="funil">
+            <span>Só o funil</span></label>
+          <label><input type="radio" name="modo" value="criativo">
+            <span>Só os criativos</span></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Quantos anúncios</legend>
+        <select id="maxAds">
+          <option value="100">100</option>
+          <option value="200">200</option>
+          <option value="300">300</option>
+          <option value="500">500</option>
+          <option value="1000">1000</option>
+          <option value="2000" selected>2000 (máximo)</option>
+        </select>
+      </fieldset>
+      <fieldset style="flex:1;min-width:260px">
+        <legend>Proxy no país-alvo (opcional)</legend>
+        <input type="text" id="proxy" class="proxin"
+          placeholder="socks5://user:senha@host:porta   (vazio = IP daqui)">
+      </fieldset>
+    </div>
+  </form>
+  <p class="hint">Uma janela do navegador vai abrir para coletar os anúncios.
+     Na primeira vez você precisa fazer login no Facebook dentro dela — depois
+     disso ele lembra.</p>
+  <p class="hint"><b>Só o funil</b> pula o download das imagens e vai direto
+     atrás do destino. <b>Só os criativos</b> não sonda o site do alvo — ou
+     seja, não expõe o seu IP a ele. Número menor de anúncios termina mais
+     rápido; para página muito grande, prefira filtrar a busca na própria
+     Biblioteca a coletar mais.</p>
+
+  <div class="card hide" id="stages">
+    <div class="status" id="status">
+      <div class="spin"></div>
+      <div class="txt" id="statusTxt">iniciando...</div>
+      <div class="clock" id="clock">0:00</div>
+      <button class="ghost" id="cancel" type="button">Cancelar</button>
+    </div>
+    <div class="note hide" id="note">
+      Uma janela do navegador vai abrir para coletar os anúncios. Ela pode
+      demorar alguns segundos e abrir atrás desta — é normal. Não feche.
+    </div>
+    <div class="stage" data-s="coletar">
+      <div class="dot"></div>
+      <div><h3>Coletando os anúncios</h3>
+        <p>Abre a Biblioteca e captura os dados por trás da tela, incluindo o
+           endereço real de destino, que a interface do Meta não mostra.</p>
+        <div class="live"></div></div>
+    </div>
+    <div class="stage" data-s="criativo">
+      <div class="dot"></div>
+      <div><h3>Guardando a impressão digital dos criativos</h3>
+        <p>Tira uma impressão digital visual de cada anúncio. Se você já
+           analisou esta página antes, compara com a de então — anúncio
+           aprovado limpo e editado depois aparece aqui.</p>
+        <div class="live"></div></div>
+    </div>
+    <div class="stage" data-s="osint">
+      <div class="dot"></div>
+      <div><h3>Checando a pegada pública</h3>
+        <p>Procura os domínios em registros públicos: quem já capturou, quando
+           foram criados, que outros domínios pertencem ao mesmo dono.</p>
+        <div class="live"></div></div>
+    </div>
+    <div class="stage" data-s="sidedoor">
+      <div class="dot"></div>
+      <div><h3>Procurando porta lateral</h3>
+        <p>Se o filtro barrou, tenta o domínio raiz e o índice do site: o
+           cloaker costuma proteger só o endereço do anúncio e esquecer o
+           resto. É onde a oferta às vezes está aberta.</p>
+        <div class="live"></div></div>
+    </div>
+    <div class="stage" data-s="probe">
+      <div class="dot"></div>
+      <div><h3>Testando o acesso</h3>
+        <p>Pede a mesma página fingindo ser visitantes diferentes e compara as
+           respostas, para descobrir o que o filtro está olhando.</p>
+        <div class="live"></div></div>
+    </div>
+  </div>
+
+  <div id="out"></div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c =>
+  ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+let src = null, t0 = 0, timer = null, acabou = false;
+
+function relogio(){
+  const s = Math.floor((Date.now() - t0) / 1000);
+  $("#clock").textContent = Math.floor(s/60) + ":" + String(s%60).padStart(2,"0");
+}
+function status(txt, estado){
+  $("#statusTxt").textContent = txt;
+  $("#status").className = "status" + (estado ? " " + estado : "");
+}
+function parar(){
+  clearInterval(timer); timer = null;
+  $("#go").disabled = false;
+  $("#cancel").classList.add("hide");
+  $("#note").classList.add("hide");
+  if (src) { src.close(); src = null; }
+}
+
+$("#cancel").addEventListener("click", () => {
+  acabou = true;
+  parar();
+  status("cancelado por você", "fail");
+  document.querySelectorAll(".stage.run").forEach(s => s.className = "stage");
+});
+
+$("#f").addEventListener("submit", ev => {
+  ev.preventDefault();
+  const url = $("#url").value.trim();
+  if (!url) return;
+
+  acabou = false;
+  $("#go").disabled = true;
+  $("#out").innerHTML = "";
+  $("#stages").classList.remove("hide");
+  $("#cancel").classList.remove("hide");
+  $("#note").classList.remove("hide");
+  document.querySelectorAll(".stage").forEach(s => {
+    s.className = "stage wait";
+    s.querySelector(".live").textContent = "";
+  });
+
+  // Feedback imediato: o primeiro evento do servidor so chega depois que o
+  // navegador de coleta abre, o que leva ~10s. Sem isto a tela fica muda.
+  document.querySelector('.stage[data-s="coletar"]').className = "stage run";
+  t0 = Date.now();
+  relogio();
+  timer = setInterval(relogio, 1000);
+  status("abrindo o navegador de coleta...");
+
+  if (src) src.close();
+  const modo = document.querySelector('input[name="modo"]:checked').value;
+  const maxAds = $("#maxAds").value;
+  // Proxy é opcional: preenchido, a probe inteira sai por ele; vazio, roda
+  // igual a hoje (IP da máquina). O backend já trata proxy=None sozinho.
+  const proxy = ($("#proxy").value || "").trim();
+  src = new EventSource("/api/analisar?url=" + encodeURIComponent(url)
+        + "&modo=" + encodeURIComponent(modo)
+        + "&max_ads=" + encodeURIComponent(maxAds)
+        + (proxy ? "&proxy=" + encodeURIComponent(proxy) : ""));
+
+  src.onmessage = e => {
+    const m = JSON.parse(e.data);
+    if (m.tipo === "pulso") {
+      // Nada novo, mas o servidor esta vivo. So o relogio anda.
+      if (m.segundos > 25 && $("#statusTxt").textContent.startsWith("abrindo"))
+        status("ainda abrindo o navegador — se uma janela pediu login, "
+               + "faça o login nela para continuar");
+      return;
+    }
+    if (m.tipo === "estagio") onStage(m);
+    else if (m.tipo === "final") { acabou = true; finish(m.resultado); }
+    else if (m.tipo === "erro") { acabou = true; fail(m.mensagem); }
+  };
+
+  src.onerror = () => {
+    if (acabou) return;   // fim normal do stream, nao e falha
+    fail("A conexão com o servidor caiu. Ele pode ter sido encerrado — "
+       + "feche e abra o Funnel Recon de novo.");
+  };
+});
+
+// Por que a coleta parou antes do fim da lista. Pagina de dropshipper com
+// dezenas de milhares de anuncios nunca chega no "fim da lista".
+const MOTIVO = {
+  teto_de_anuncios: "teto de coleta atingido",
+  prazo_esgotado: "tempo limite da coleta",
+  pagina_travou: "a página travou de tanto anúncio",
+  limite_de_rolagem: "limite de rolagens",
+};
+
+const STATUS = {
+  coletar: "coletando os anúncios da Biblioteca",
+  criativo: "guardando a impressão digital dos criativos",
+  osint:   "checando a pegada pública dos domínios",
+  probe:   "testando o acesso com visitantes diferentes",
+  sidedoor: "procurando uma porta lateral para a oferta",
+};
+
+const LIVE = {
+  abrindo: () => "abrindo a Biblioteca...",
+  coletando: d => `${d.ads} anúncios capturados`,
+  rolando: d => `rolando a página — ${d.ads} anúncios`,
+  fim_da_lista: d => `fim da lista: ${d.ads} anúncios`,
+  parcial: d => `${d.ads} anúncios — ${MOTIVO[d.motivo] || "coleta interrompida"}`,
+  rolagem_falhou: d => `a página travou com ${d.ads} anúncios — salvando o que deu`,
+  pronto: d => `${d.ads} anúncios`,
+  hasheando: d => `${d.prontos} criativos processados`,
+  porta: d => `tentando ${(d.url||'').replace(/^https?:\/\//,'')}`,
+  cms: d => `${d.tipo} detectado — lendo o índice do site`,
+  inventario: d => `${d.paginas} páginas no índice`,
+  persona: d => `visitante ${d.i} de ${d.total}: ${d.persona}`,
+  inicio: d => d.dominios ? `${d.dominios.length} domínios`
+             : d.anuncios ? `${d.anuncios} criativos para processar` : "",
+};
+
+// `fim` do estagio de criativo: a frase muda conforme haja ou nao historico
+// para comparar. Sem historico nao ha nada a concluir hoje -- so na proxima.
+function fimCriativo(d) {
+  if (!d.hasheados) return "nenhum criativo pôde ser processado";
+  if (!d.comparados) return `${d.hasheados} criativos guardados — `
+    + `analise esta página de novo mais tarde para comparar`;
+  if (!d.divergencias) return `${d.hasheados} criativos: nenhum mudou desde a última vez`;
+  return `${d.divergencias} de ${d.comparados} criativos MUDARAM desde a última vez`;
+}
+
+function onStage(m) {
+  const el = document.querySelector(`.stage[data-s="${m.estagio}"]`);
+  if (!el) return;
+  if (m.estagio !== "coletar") $("#note").classList.add("hide");
+  if (STATUS[m.estagio] && m.evento !== "fim" && m.evento !== "pulado")
+    status(STATUS[m.estagio]);
+  // Um estágio que começa encerra o anterior: a cascata é sequencial.
+  const ordem = ["coletar", "criativo", "osint", "probe", "sidedoor"];
+  ordem.slice(0, ordem.indexOf(m.estagio)).forEach(s => {
+    const p = document.querySelector(`.stage[data-s="${s}"]`);
+    if (p && !p.classList.contains("skip") && !p.classList.contains("fail"))
+      p.className = "stage done";
+  });
+
+  if (m.evento === "erro") el.className = "stage fail";
+  else if (m.evento === "pulado") {
+    el.className = "stage skip";
+    el.querySelector(".live").textContent = "pulado — " + (m.dados.motivo || "");
+    return;
+  }
+  else if (m.evento === "fim") el.className = "stage done";
+  else el.className = "stage run";
+
+  if (m.estagio === "criativo" && m.evento === "fim") {
+    el.querySelector(".live").textContent = fimCriativo(m.dados || {});
+    return;
+  }
+  const f = LIVE[m.evento];
+  if (f) { const t = f(m.dados || {}); if (t) el.querySelector(".live").textContent = t; }
+  if (m.evento === "vazamento")
+    el.querySelector(".live").textContent = "funil vazou no texto: " +
+      (m.dados.achados || []).join(", ");
+}
+
+function fail(msg) {
+  parar();
+  status("não deu certo", "fail");
+  document.querySelectorAll(".stage.run").forEach(s => s.className = "stage fail");
+  $("#out").innerHTML = `<div class="card"><div class="verdict error">
+    <div class="tag">Erro</div><h2>Não consegui completar.</h2>
+    <p>${esc(msg)}</p></div></div>`;
+}
+
+const ROTULO = {
+  money: "Funil encontrado", white: "Travado", challenge: "Barrado por WAF",
+  criativo: "Criativo trocado", error: "Erro", unknown: "Sem conclusão",
+};
+
+function finish(r) {
+  const seg = Math.floor((Date.now() - t0) / 1000);
+  parar();
+  status(`terminou em ${Math.floor(seg/60)}min ${seg%60}s`, "done");
+  document.querySelectorAll(".stage.run,.stage.wait").forEach(
+    s => s.className = "stage" + (s.querySelector(".live").textContent ? " done" : ""));
+
+  let h = `<div class="card"><div class="verdict ${esc(r.veredito)}">
+      <div class="tag">${esc(ROTULO[r.veredito] || r.veredito)}</div>
+      <h2>${esc(r.manchete)}</h2>
+      <p>${esc(r.proximo_passo)}</p></div></div>`;
+
+  // Precisa vir ANTES do histograma: e ele que passa a significar outra coisa.
+  if (r.parcial) {
+    h += `<div class="card"><h4>Isto é uma amostra, não a página inteira</h4>
+      <p class="hint">A coleta parou por <b>${esc(MOTIVO[r.parcial_motivo]
+        || r.parcial_motivo || "limite atingido")}</b> com
+      ${r.total_anuncios} anúncios. A Biblioteca entrega os mais recentes
+      primeiro, então esta amostra é enviesada para o que está no ar agora.</p>
+      <p class="hint">As porcentagens abaixo são da amostra, e por isso
+      <b>nenhum domínio é marcado como OUTLIER</b>: "raro" só faz sentido
+      contra o conjunto inteiro, e o domínio raro da operação pode ser maioria
+      nesta fatia — ou não ter aparecido nela. Para conclusão de distribuição,
+      filtre a busca na Biblioteca (por país, ou por palavra) até caber, em vez
+      de aumentar o teto.</p></div>`;
+  }
+
+  if (r.vazamentos && r.vazamentos.length) {
+    const vistos = new Set();
+    h += `<div class="card"><h4>Funil exposto no texto do anúncio</h4>`;
+    for (const v of r.vazamentos) {
+      if (vistos.has(v.achado)) continue;
+      vistos.add(v.achado);
+      h += `<div class="leak">${esc(v.achado)}</div>`;
+    }
+    h += `</div>`;
+  }
+
+  const laterais = (r.portas_laterais || []).filter(x => x.verdict === "money");
+  if (laterais.length) {
+    h += `<div class="card"><h4>Oferta encontrada por porta lateral</h4>
+      <p class="hint">O cloaker protege o endereço do anúncio, mas o domínio
+      raiz respondeu normalmente daqui — sem proxy, sem furar filtro. Guarde
+      agora: é erro de configuração e pode ser fechado a qualquer momento.</p>`;
+    for (const r2 of laterais) {
+      const url = (r2.signals.find(s => s.startsWith("sidedoor_url:")) || "").slice(12);
+      const titulo = (r2.signals.find(s => s.startsWith("sidedoor_title:")) || "").slice(14);
+      h += `<div class="alvo">${esc(url)}${titulo ? " — " + esc(titulo) : ""}</div>`;
+      for (const s of r2.signals) {
+        if (s.startsWith("checkout:"))
+          h += `<div class="leak">checkout: ${esc(s.slice(9))}</div>`;
+        if (s.startsWith("vsl_player:"))
+          h += `<div class="hint" style="word-break:break-all">player VSL: ${esc(s.slice(11))}</div>`;
+      }
+    }
+    h += `</div>`;
+  }
+
+  if (r.cloakers && r.cloakers.length) {
+    h += `<div class="card"><h4>Plataforma de cloaking identificada</h4>`;
+    for (const c of r.cloakers)
+      h += `<p class="hint" style="font-size:14px;color:#c3cbdd">
+        <b>${esc(c.plataforma)}</b> em <code>${esc(c.host)}</code>${
+        c.confirmado ? "" : " — <i>suspeita pelo nome do domínio, confira à mão</i>"}</p>`;
+    h += `<p class="hint">Cloaker de prateleira decide por <b>IP/ASN</b> antes de
+      olhar qualquer cabeçalho. Se o teste de acesso abaixo der "todas as
+      páginas iguais", isso reforça que o filtro é de IP — mexer em
+      cabeçalho não vai passar, e o caminho é proxy no país-alvo.</p></div>`;
+  }
+
+  const div = (r.criativo && r.criativo.divergencias) || [];
+  if (div.length) {
+    h += `<div class="card"><h4>Criativo trocado depois da aprovação</h4>
+      <p class="hint">${div.length} anúncio${div.length > 1 ? "s" : ""} mostra
+      hoje uma imagem diferente da que mostrava na sua última análise, com o
+      mesmo ID. É a assinatura do <b>bait-and-switch</b>: aprovam um criativo
+      limpo e editam depois.</p>
+      <div class="scroll"><table><tr><th>anúncio</th>
+      <th>o quanto mudou</th><th>quando comparei</th></tr>`;
+    for (const d of div)
+      h += `<tr><td>${esc(d.ad_id)}</td>
+        <td>${d.distance == null ? "-" : d.distance + " de 64"}</td>
+        <td>${esc((d.ts || "").slice(0, 10))}</td></tr>`;
+    h += `</table></div>
+      <p class="hint">"O quanto mudou" é a distância entre as duas impressões
+      digitais. Acima de 18 é imagem diferente; entre 11 e 17 a ferramenta não
+      arrisca dizer, e vale olhar os dois anúncios com o olho.</p></div>`;
+  }
+
+  if (r.histograma && r.histograma.length) {
+    const max = r.histograma[0].n || 1;
+    const tot = r.histograma.reduce((a, x) => a + x.n, 0) || 1;
+    h += `<div class="card"><h4>Para onde os ${r.total_anuncios} anúncios apontam</h4>
+      <p class="hint" style="margin:0 0 14px">Use o <b>caminho</b>, não o domínio.
+      Abrir só o domínio quase sempre dá 404 — é o caminho que o anúncio
+      manda o clique.</p>`;
+    for (const d of r.histograma) {
+      h += `<div class="bar">
+        <span class="host" title="${esc(d.host)}">${esc(d.host)}</span>
+        <span class="track"><span class="fill" style="width:${100*d.n/max}%"></span></span>
+        <span class="n">${d.n} · ${(100*d.n/tot).toFixed(0)}%</span>
+        ${d.outlier ? '<span class="tag-out">OUTLIER</span>' : ""}</div>`;
+      // O caminho é o que importa: abrir o domínio sozinho costuma dar 404.
+      const cams = (r.caminhos || {})[d.host] || [];
+      if (cams.length) {
+        h += `<div class="caminhos">`;
+        for (const c of cams)
+          h += `<div class="cam">
+            <span class="p">${esc(c.caminho)}</span>
+            <span class="qtd">${c.n}</span>
+            ${c.variante ? '<span class="var">VARIANTE</span>' : ""}
+            <button class="copiar" type="button" data-url="${esc(c.url)}">copiar URL</button>
+          </div>`;
+        h += `</div>`;
+      }
+    }
+    if (r.histograma.length > 1 && !r.histograma.some(d => d.outlier))
+      h += `<p class="hint">Dois domínios com volume parecido são funis
+        simultâneos, não rodízio de domínio — trate cada um como uma operação
+        separada.</p>`;
+    h += `</div>`;
+  }
+
+  for (const [url, linhas] of Object.entries(r.probes || {})) {
+    h += `<div class="card"><h4>Teste de acesso</h4>
+      <p class="hint" style="margin:0 0 12px;word-break:break-all">${esc(url)}</p>
+      <div class="scroll"><table><tr><th>visitante</th><th>status</th>
+      <th>impressão digital da página</th><th>resultado</th></tr>`;
+    for (const l of linhas)
+      h += `<tr><td>${esc(l.source)}</td><td>${esc(l.status || "-")}</td>
+        <td>${esc(l.body_sha || "-")}</td>
+        <td class="v-${esc(l.verdict)}">${esc(l.verdict)}</td></tr>`;
+    h += `</table></div>
+      <p class="hint">Impressões digitais iguais = todos receberam a mesma
+      página. Diferentes = o filtro reagiu a alguma característica do visitante.</p>
+      </div>`;
+  }
+
+  const osintSigs = [];
+  for (const [dom, rs] of Object.entries(r.osint || {}))
+    for (const s of rs) for (const sig of (s.signals || []))
+      if (/^(domain_created|young_domain|registrar|ns_pair|archived_redirector|revealing_subdomain|sibling_subdomain|archived_path|apex|bounced_offsite|urlscan_final_url):/.test(sig))
+        osintSigs.push([dom, sig]);
+  if (osintSigs.length) {
+    h += `<div class="card"><details><summary>Pegada pública dos domínios</summary>
+      <div class="scroll" style="margin-top:12px"><table>`;
+    for (const [d, s] of osintSigs)
+      h += `<tr><td>${esc(d)}</td><td>${esc(s)}</td></tr>`;
+    h += `</table></div></details></div>`;
+  }
+
+  $("#out").innerHTML = h;
+
+  // Copiar a URL COMPLETA (com fbclid quando existe) -- digitar o domínio na
+  // mão é justamente como se acaba na raiz que dá 404.
+  $("#out").querySelectorAll(".copiar").forEach(b => {
+    b.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(b.dataset.url);
+        const antes = b.textContent;
+        b.textContent = "copiado";
+        setTimeout(() => { b.textContent = antes; }, 1400);
+      } catch {
+        // Sem permissão de clipboard: mostra a URL para seleção manual.
+        b.insertAdjacentHTML("afterend",
+          `<div class="alvo">${esc(b.dataset.url)}</div>`);
+        b.remove();
+      }
+    });
+  });
+}
+</script>
+</body>
+</html>

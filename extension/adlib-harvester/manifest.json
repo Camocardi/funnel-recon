@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Ad Library Harvester",
+  "version": "1.0.0",
+  "description": "Coleta destinos, datas e vazamentos de todos os anuncios de uma pagina na Biblioteca de Anuncios do Meta.",
+  "permissions": ["clipboardWrite"],
+  "host_permissions": ["https://www.facebook.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://www.facebook.com/ads/library*"],
+      "js": ["inject.js"],
+      "world": "MAIN",
+      "run_at": "document_start",
+      "all_frames": false
+    },
+    {
+      "matches": ["https://www.facebook.com/ads/library*"],
+      "js": ["content.js"],
+      "world": "ISOLATED",
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}
