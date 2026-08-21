@@ -242,3 +242,26 @@ def apex_domain(url_or_host: str) -> str:
     if ".".join(partes[-2:]) in MULTI_TLD:
         return ".".join(partes[-3:])
     return ".".join(partes[-2:])
+
+def is_bounced(html: str) -> bool:
+    """
+    Detecta se a página é um despejo (bounce).
+    Esta função já deve existir no seu código.
+    Se não existir, adicione esta versão.
+    """
+    if not html or len(html) < 100:
+        return True
+    
+    html_lower = html.lower()
+    
+    bounce_signals = [
+        "cwc.edu",
+        "central wyoming college", 
+        "tarot",
+        "access denied",
+        "please enable javascript",
+        "your browser does not support",
+        "404 not found",
+    ]
+    
+    return any(signal in html_lower for signal in bounce_signals)
