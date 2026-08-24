@@ -19,6 +19,7 @@ from typing import Any, Callable
 from . import conhecidas, db, operadores
 from .collect.bio import bio_de_paginas
 from .collation import resumo as resumo_collation
+from .fachada import analisar as analisar_fachada
 from .collect.normalize import (domain_histogram, normalize_row,
                                 path_histogram, pick_probe_targets)
 from .creative import hash_many, temporal_diffs
@@ -98,6 +99,9 @@ class Findings:
     criativos_pulverizados: list = field(default_factory=list)
     # Pasta onde as imagens desta coleta foram salvas (para ver o criativo).
     creatives_dir: str = ""
+    # Anuncio-fachada: criativo generico (isca de revisao) escondendo o funil
+    # real numa minoria de anuncios. Ver fachada.py.
+    fachada: dict = field(default_factory=dict)
     creative_hashed: int = 0
     # Paginas abertas por porta lateral (apex, inventario do CMS). Ficam fora
     # de `probes` porque nao sao tentativas contra o filtro: sao outra porta.
@@ -173,6 +177,7 @@ async def run_pipeline(
     f.ads = [ad for ad in (normalize_row(r) for r in raw) if ad]
     f.histogram = domain_histogram(f.ads, sample=f.truncated)
     f.criativos_pulverizados = resumo_collation(f.ads)
+    f.fachada = analisar_fachada(f.ads)
     f.paths = path_histogram(f.ads, sample=f.truncated)
 
     # Plataforma de cloaking entre os proprios dominios do anunciante: o

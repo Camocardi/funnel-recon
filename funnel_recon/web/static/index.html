@@ -480,6 +480,22 @@ function finish(r) {
     h += `</div>`;
   }
 
+  if (r.fachada && r.fachada.iscas) {
+    const fc = r.fachada;
+    h += `<div class="card"><h4>Anúncio-fachada detectado</h4>
+      <p class="hint"><b>${fc.iscas} de ${fc.total}</b> anúncios desta página usam
+      um criativo genérico de isca (<i>${esc(fc.amostra_isca)}</i>) — produto barato
+      que passa fácil na revisão do Meta. O funil real fica escondido na minoria
+      que foge do padrão. O criativo da Biblioteca é real; a fachada é usá-lo para
+      disfarçar a oferta de quem revisa.</p>`;
+    if ((fc.destinos_reais || []).length) {
+      h += `<p class="hint">Destino real revelado por quem foge da isca:</p>`;
+      for (const d of fc.destinos_reais)
+        h += `<div class="leak">${esc(d.host)}${d.n > 1 ? " ×" + d.n : ""}</div>`;
+    }
+    h += `</div>`;
+  }
+
   if ((r.criativos_pulverizados || []).length) {
     h += `<div class="card"><h4>Criativos mais escalados</h4>
       <p class="hint">Cada imagem é um criativo, com quantas cópias dele o

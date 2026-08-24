@@ -192,6 +192,7 @@ def _serialize(f) -> dict:
         "rede": {"bytes": f.bytes_coleta, "por_tipo": f.rede_por_tipo},
         "bio_dominios": f.bio_dominios,
         "criativos_pulverizados": _galeria(f),
+        "fachada": f.fachada,
         "anuncios": [asdict(a) for a in f.ads[:200]],
     }
 
