@@ -35,7 +35,20 @@ def representantes(ads: list, limite: int = 12) -> list:
             por_grupo.setdefault(cid, []).append(a)
     ordenados = sorted(por_grupo.values(),
                        key=lambda g: -(getattr(g[0], "collation_count", 0) or 0))
-    return [g[0] for g in ordenados[:limite]]
+
+    def com_midia(grupo):
+        """Representante do grupo -- prefere um anuncio que TENHA midia.
+
+        O primeiro anuncio do grupo as vezes vem sem creative_lib_url, e ai a
+        galeria mostrava 'sem link' apesar de outros anuncios do mesmo grupo
+        terem imagem/video. Pega o primeiro com midia, ou o primeiro se nenhum.
+        """
+        for a in grupo:
+            if getattr(a, "creative_lib_url", None) or getattr(a, "media", None):
+                return a
+        return grupo[0]
+
+    return [com_midia(g) for g in ordenados[:limite]]
 
 
 def resumo(ads: list) -> list[dict]:

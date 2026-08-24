@@ -123,7 +123,11 @@ def _encode(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _insert(conn: sqlite3.Connection, table: str, obj: Any, replace: bool = False) -> None:
-    row = _encode(asdict(obj))
+    # So colunas que existem na tabela. Campos de sessao (ex.: Ad.media, que
+    # guarda URLs de CDN que expiram) nao sao persistidos e nao podem entrar no
+    # INSERT -- senao quebra com "no column named ...".
+    colunas = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+    row = {k: v for k, v in _encode(asdict(obj)).items() if k in colunas}
     cols = ", ".join(row)
     marks = ", ".join("?" for _ in row)
     verb = "INSERT OR REPLACE" if replace else "INSERT"

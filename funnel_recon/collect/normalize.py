@@ -131,6 +131,7 @@ def normalize_row(row: dict) -> Ad | None:
         }),
         collation_count=row.get("collation_count"),
         collation_id=row.get("collation_id"),
+        media=[m for m in (row.get("media") or []) if isinstance(m, str)],
     )
 
 

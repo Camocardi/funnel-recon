@@ -455,6 +455,7 @@ function renderGaleria() {
   const alvo = $("#galeriaAlvo");
   if (!alvo) return;
   const st = ($("#fStatus") || {}).value || "todos";
+  const mid = ($("#fMidia") || {}).value || "todos";
   const min = parseInt(($("#fMin") || {}).value || "0", 10) || 0;
   const desde = ($("#fDesde") || {}).value || "";
   const ord = ($("#fOrd") || {}).value || "copias";
@@ -462,6 +463,8 @@ function renderGaleria() {
   let itens = GALERIA.filter(g => {
     if (st === "ativos" && !(g.ativos > 0)) return false;
     if (st === "inativos" && !g.so_inativos) return false;
+    if (mid === "imagem" && g.tipo !== "imagem") return false;
+    if (mid === "video" && g.tipo !== "video") return false;
     if (g.declarado < min) return false;
     if (desde && (g.fim || g.inicio || "") < desde) return false;
     return true;
@@ -481,13 +484,19 @@ function renderGaleria() {
       ? `<div class="crx-data">${esc(g.inicio || "?")} → ${esc(g.fim || "?")}</div>` : "";
     let visual;
     if (g.img) {
+      // imagem salva localmente: mostra e permite baixar
       visual = `<a href="${esc(g.img)}" target="_blank"><img src="${esc(g.img)}" loading="lazy"></a>`
         + `<a class="crx-dl" href="${esc(g.img)}" download>⤓ baixar imagem</a>`;
-    } else if (g.video) {
-      visual = `<div class="crx-vazio">🎬 vídeo</div>`
-        + `<a class="crx-dl" href="${esc(g.video)}" target="_blank" download>⤓ abrir/baixar vídeo</a>`;
+    } else if (g.poster) {
+      // não salva, mas há poster no CDN do Meta: mostra o poster (vale enquanto o link vive)
+      visual = `<a href="${esc(g.video || g.poster)}" target="_blank"><img src="${esc(g.poster)}" loading="lazy"></a>`
+        + `<a class="crx-dl" href="${esc(g.video || g.link)}" target="_blank">↗ ${g.video ? "abrir vídeo" : "ver no Meta"}</a>`;
+    } else if (g.video || g.link) {
+      const url = g.video || g.link;
+      visual = `<div class="crx-vazio">${g.video ? "🎬 vídeo" : "🖼 imagem"}</div>`
+        + `<a class="crx-dl" href="${esc(url)}" target="_blank">↗ ${g.video ? "abrir vídeo" : "ver imagem"} (link do Meta)</a>`;
     } else {
-      visual = `<div class="crx-vazio">sem mídia salva</div>`;
+      visual = `<div class="crx-vazio">sem link</div>`;
     }
     h += `<figure class="crx">${visual}`
       + `<figcaption><b>${g.declarado}×</b> cópias ${status}${periodo}`
@@ -564,6 +573,12 @@ function finish(r) {
             <option value="todos">todos</option>
             <option value="ativos">só com ativos</option>
             <option value="inativos">só inativos</option>
+          </select></label>
+        <label>Mídia
+          <select id="fMidia" onchange="renderGaleria()">
+            <option value="todos">imagem e vídeo</option>
+            <option value="imagem">só imagem</option>
+            <option value="video">só vídeo</option>
           </select></label>
         <label>Mín. cópias
           <input type="number" id="fMin" value="0" min="0" style="width:70px"

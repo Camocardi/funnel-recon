@@ -145,13 +145,20 @@ def _galeria(f) -> list[dict]:
                     img = f"/criativo/{nome_pasta}/{ad_id}{ext}"
                     break
         rep = reps.get(ad_id)
-        # link do criativo em VIDEO (quando o representante e video, nao imagem)
-        video = ""
+        # Link direto do Meta (a URL do CDN do criativo). Serve mesmo quando a
+        # imagem nao foi salva localmente -- o usuario ainda consegue VER, em
+        # vez de so ler "sem midia". Expira em horas, mas vale enquanto vale.
         lib = getattr(rep, "creative_lib_url", "") if rep else ""
-        if lib and "/o1/v/" in lib:
-            video = lib
+        midias = getattr(rep, "media", None) or ([lib] if lib else [])
+        video = lib if lib and "/o1/v/" in lib else ""
+        # Poster do video (a thumbnail costuma vir junto em media[]).
+        poster = next((m for m in midias if isinstance(m, str)
+                       and m.lower().split("?")[0].endswith(
+                           (".jpg", ".jpeg", ".png", ".webp"))), "")
+        tipo = "video" if video else ("imagem" if (img or poster or lib) else "")
         saida.append({"declarado": g["declarado"], "vistos": g["vistos"],
                       "hosts": g["hosts"], "img": img, "video": video,
+                      "link": lib, "poster": poster, "tipo": tipo,
                       "ativos": g.get("ativos", 0), "inativos": g.get("inativos", 0),
                       "so_inativos": g.get("so_inativos", False),
                       "inicio": g.get("inicio"), "fim": g.get("fim")})

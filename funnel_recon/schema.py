@@ -65,6 +65,10 @@ class Ad:
     # em varios ad_ids (escapa de revisao). Ver collect/parse.py.
     collation_count: Optional[int] = None
     collation_id: Optional[str] = None
+    # Todas as URLs de criativo do anuncio (imagem e video). Nao vai para o
+    # banco -- as URLs do CDN expiram -- mas serve na sessao para a galeria
+    # achar poster/link mesmo quando o representante tem creative_lib_url vazio.
+    media: list[str] = field(default_factory=list)
     ts: str = field(default_factory=now_iso)
 
 
