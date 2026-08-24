@@ -450,6 +450,16 @@ def build_parser() -> argparse.ArgumentParser:
                          "(e a mesma VSL ou uma nova?)")
     pg.set_defaults(func=cmd_page)
 
+    cp = sub.add_parser("perfil", help="mostra o que um cloaker VE do seu "
+                                       "navegador (checagem, nao bypass)")
+    cp.add_argument("--snippet", action="store_true",
+                    help="imprime o JS para colar no console do navegador")
+    cp.add_argument("--pais", help="pais que o ipapi.co ve pelo seu IP (ex: US)")
+    cp.add_argument("--fuso", help="fuso do seu IP (ex: America/New_York)")
+    cp.add_argument("--json", help="cole aqui o objeto que o snippet devolveu, "
+                                   "para avaliar as regras")
+    cp.set_defaults(func=cmd_perfil)
+
     vi = sub.add_parser("vsl-id", help="[5c] identidade de uma money page e os "
                                        "irmaos do mesmo operador")
     vi.add_argument("url", help="URL da money page (a VSL, nao o link do anuncio)")
@@ -492,6 +502,42 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def cmd_perfil(args) -> int:
+    """O que o cloaker ve do seu navegador. Checagem do proprio ambiente."""
+    import json as _json
+
+    from .checar_perfil import SNIPPET_JS, avaliar
+
+    if args.snippet or not args.json:
+        print("Cole isto no console do navegador que voce vai usar (Dolphin,")
+        print("Chrome, o que for), copie o objeto que ele imprime, e rode de novo")
+        print("com --json '<objeto>' (e --pais/--fuso do que o seu IP mostra):\n")
+        print(SNIPPET_JS)
+        return 0
+
+    try:
+        dados = _json.loads(args.json)
+    except Exception as e:
+        print(f"nao consegui ler o JSON: {e}", file=sys.stderr)
+        return 2
+
+    print("\nO que um cloaker (padrao The White Rabbit) veria:\n")
+    problemas = 0
+    for a in avaliar(dados, geo_pais=args.pais, geo_timezone=args.fuso):
+        marca = "  ok " if a["ok"] else "  !! "
+        if not a["ok"]:
+            problemas += 1
+        print(f"{marca}{a['campo']:16} {a['nota']}")
+    print()
+    if problemas:
+        print(f"{problemas} sinal(is) te denunciam. Corrija no perfil ANTES de "
+              "gastar clique -- proxy nao resolve nenhum deles.")
+    else:
+        print("Nenhum sinal obvio de automacao ou incoerencia. O ambiente esta "
+              "coerente com um visitante real.")
+    return 0
 
 
 def cmd_vsl_id(args) -> int:
