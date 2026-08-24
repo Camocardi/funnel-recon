@@ -129,6 +129,8 @@ def normalize_row(row: dict) -> Ad | None:
                         for k in ("creative_lib_url", "creative_feed_url"))
             if h and not is_meta_host(h)
         }),
+        collation_count=row.get("collation_count"),
+        collation_id=row.get("collation_id"),
     )
 
 

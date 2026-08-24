@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS ad (
     creative_feed_url TEXT,
     creative_phash    TEXT,
     asset_hosts       TEXT,
+    collation_count   INTEGER,
+    collation_id      TEXT,
     ts                TEXT
 );
 
@@ -83,7 +85,8 @@ _JSON_FIELDS = {"countries", "leaks", "asset_hosts", "signals", "raw"}
 # para sempre (o Meta apaga ao pausar), entao recriar o banco nao e opcao.
 MIGRATIONS = {
     "ad": (("is_active", "INTEGER"), ("end_date", "TEXT"),
-           ("creative_phash", "TEXT")),
+           ("creative_phash", "TEXT"),
+           ("collation_count", "INTEGER"), ("collation_id", "TEXT")),
     "creative_diff": (("kind", "TEXT"),),
 }
 

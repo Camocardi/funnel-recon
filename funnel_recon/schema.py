@@ -61,6 +61,10 @@ class Ad:
     # voltar depois: sem o hash gravado agora, nao existe comparacao no tempo.
     creative_phash: Optional[str] = None
     asset_hosts: list[str] = field(default_factory=list)
+    # Copias do mesmo criativo agrupadas pelo Meta. >1 = criativo pulverizado
+    # em varios ad_ids (escapa de revisao). Ver collect/parse.py.
+    collation_count: Optional[int] = None
+    collation_id: Optional[str] = None
     ts: str = field(default_factory=now_iso)
 
 

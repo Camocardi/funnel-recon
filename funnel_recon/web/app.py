@@ -132,6 +132,9 @@ def _serialize(f) -> dict:
         "operadores_vistos": f.operadores_vistos,
         "rede": {"bytes": f.bytes_coleta, "por_tipo": f.rede_por_tipo},
         "bio_dominios": f.bio_dominios,
+        "criativos_pulverizados": [
+            {"declarado": g["declarado"], "vistos": g["vistos"],
+             "hosts": g["hosts"]} for g in f.criativos_pulverizados],
         "anuncios": [asdict(a) for a in f.ads[:200]],
     }
 

@@ -166,6 +166,13 @@ def collect_media(snap: dict) -> list[str]:
     return found
 
 
+def _int(v):
+    try:
+        return int(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def extract_ads(payload: str) -> list[dict]:
     """Payload cru -> lista de registros no formato que `normalize.py` consome.
 
@@ -205,6 +212,15 @@ def extract_ads(payload: str) -> list[dict]:
                                      if obj.get(k) or snap.get(k)), None)),
                 "creative_lib_url": media[0] if media else "",
                 "media": media,
+                # Quantas COPIAS do mesmo criativo o Meta agrupou sob este
+                # anuncio. Rodar um criativo em 50 copias e tecnica de escapar
+                # de revisao: derrubam uma, seguem as outras. O Meta entrega a
+                # contagem de graca -- e sinal que a Biblioteca sempre mostra,
+                # mesmo quando o destino esta cloakeado.
+                "collation_count": _int(obj.get("collation_count")
+                                        or snap.get("collation_count")),
+                "collation_id": str(obj.get("collation_id")
+                                    or snap.get("collation_id") or "") or None,
             }
             prev = out.get(ad_id)
             if not prev:
