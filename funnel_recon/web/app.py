@@ -129,6 +129,7 @@ def _serialize(f) -> dict:
         # id da VSL -> como ela ja e conhecida. O front usa para separar a
         # isca (VSL velha, deixada exposta) da oferta de verdade.
         "vsls_conhecidas": f.vsls_conhecidas,
+        "operadores_vistos": f.operadores_vistos,
         "rede": {"bytes": f.bytes_coleta, "por_tipo": f.rede_por_tipo},
         "bio_dominios": f.bio_dominios,
         "anuncios": [asdict(a) for a in f.ads[:200]],

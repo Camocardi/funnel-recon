@@ -450,6 +450,14 @@ def build_parser() -> argparse.ArgumentParser:
                          "(e a mesma VSL ou uma nova?)")
     pg.set_defaults(func=cmd_page)
 
+    op = sub.add_parser("operador", help="operadores conhecidos pela conta de "
+                                        "VSL -- para reconhecer campanha nova cedo")
+    op.add_argument("--marcar", metavar="CONTA", help="uuid da conta converteai")
+    op.add_argument("--rotulo", default="")
+    op.add_argument("--nota", default="")
+    op.add_argument("--esquecer", metavar="CONTA")
+    op.set_defaults(func=cmd_operador)
+
     cp = sub.add_parser("perfil", help="mostra o que um cloaker VE do seu "
                                        "navegador (checagem, nao bypass)")
     cp.add_argument("--snippet", action="store_true",
@@ -502,6 +510,31 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def cmd_operador(args) -> int:
+    """Lista e mantem os operadores conhecidos (a conta de VSL e o pivo)."""
+    from . import operadores
+
+    if args.esquecer:
+        print("esquecido." if operadores.esquecer(args.esquecer)
+              else "essa conta nao estava na lista.")
+        return 0
+    if args.marcar:
+        d = operadores.marcar(args.marcar, args.rotulo, args.nota)
+        print(f"marcado: {args.marcar.strip().lower()}  ({d['rotulo']})")
+
+    itens = operadores.listar()
+    if not itens:
+        print("nenhum operador marcado ainda.\n"
+              "  funnel_recon operador --marcar <conta> --rotulo 'nome'\n"
+              "  a conta sai de `vsl-id` numa money page.")
+        return 0
+    print(f"\n{len(itens)} operador(es) conhecido(s):")
+    for conta, d in itens:
+        print(f"  {conta}  {d.get('rotulo', ''):<28} {d.get('visto_em', '')[:10]}"
+              + (f"  -- {d['nota']}" if d.get("nota") else ""))
+    return 0
 
 
 def cmd_perfil(args) -> int:

@@ -16,7 +16,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from . import conhecidas, db
+from . import conhecidas, db, operadores
 from .collect.bio import bio_de_paginas
 from .collect.normalize import (domain_histogram, normalize_row,
                                 path_histogram, pick_probe_targets)
@@ -99,6 +99,9 @@ class Findings:
     # id da VSL -> como ela ja e conhecida (marcada a mao ou vista no
     # historico). Vazio quando tudo que a porta lateral serviu e inedito.
     vsls_conhecidas: dict = field(default_factory=dict)
+    # conta de VSL -> operador conhecido. Reconhecer o dono cedo e o unico jeito
+    # legitimo de pegar VSL ainda nao saturada. Ver operadores.py.
+    operadores_vistos: dict = field(default_factory=dict)
     creative_compared: int = 0   # quantos tinham hash antigo para comparar
     mode: str = "tudo"
     verdict: str = "unknown"
@@ -474,6 +477,8 @@ def _decide(f: Findings, proxy: str | None, conn=None) -> None:
         # destino real do anuncio continua fechado.
         ids = sorted({i for r in laterais for i in conhecidas.ids_de(r.signals)})
         f.vsls_conhecidas = conhecidas.avaliar(ids, conn)
+        contas = sorted({c for r in laterais for c in operadores.contas_em(r.signals)})
+        f.operadores_vistos = operadores.reconhecer(contas)
         so_conhecidas = bool(ids) and len(f.vsls_conhecidas) == len(ids)
 
         f.blocked_by = None
