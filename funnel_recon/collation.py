@@ -18,6 +18,26 @@ Biblioteca.
 from __future__ import annotations
 
 
+def representantes(ads: list, limite: int = 12) -> list:
+    """UM anuncio por grupo de criativo, dos mais escalados, ate `limite`.
+
+    Cada grupo de collation e um criativo em N copias -- salvar as N e
+    desperdicio de espaco e de olho. Guarda-se um representante de cada, e so
+    dos grupos maiores: mais copias = criativo mais validado, que e o que
+    interessa. Fora de grupo (collation_count 1 ou ausente) nao entra: nao ha
+    o que "ver escalado" ali.
+    """
+    por_grupo: dict[str, list] = {}
+    for a in ads:
+        cid = getattr(a, "collation_id", None)
+        cc = getattr(a, "collation_count", None) or 0
+        if cid and cc >= 2:
+            por_grupo.setdefault(cid, []).append(a)
+    ordenados = sorted(por_grupo.values(),
+                       key=lambda g: -(getattr(g[0], "collation_count", 0) or 0))
+    return [g[0] for g in ordenados[:limite]]
+
+
 def resumo(ads: list) -> list[dict]:
     """Grupos de criativo pulverizado, do maior para o menor.
 

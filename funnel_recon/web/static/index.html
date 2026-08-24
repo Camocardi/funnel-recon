@@ -99,6 +99,12 @@
   .verdict.criativo{border-color:var(--ok)}
   .verdict.isca{border-color:var(--warn)}
   .vsl-old{color:var(--warn);font-size:13px;margin:2px 0 6px}
+  .galeria{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-top:12px}
+  .crx{margin:0}
+  .crx img{width:100%;height:150px;object-fit:cover;border-radius:8px;display:block;background:#0c0f16}
+  .crx-vazio{width:100%;height:150px;border-radius:8px;background:#0c0f16;color:var(--dim);
+             display:flex;align-items:center;justify-content:center;font-size:12px}
+  .crx figcaption{font-size:12px;color:#c3cbdd;margin-top:5px;text-align:center}
   .vsl-new{color:var(--ok);font-size:13px;margin:2px 0 6px}
   .verdict .tag{font-size:12px;letter-spacing:.9px;text-transform:uppercase;color:var(--dim)}
   .verdict h2{font-size:19px;margin:7px 0 11px;line-height:1.35}
@@ -470,18 +476,22 @@ function finish(r) {
   }
 
   if ((r.criativos_pulverizados || []).length) {
-    h += `<div class="card"><h4>Criativo pulverizado em cópias</h4>
-      <p class="hint">O Meta agrupa cópias do mesmo criativo e informa quantas
-      são. Um número alto é técnica de escapar de revisão: espalha-se o criativo
-      em dezenas de anúncios; derrubam um, seguem os outros. <b>Isto aparece na
-      Biblioteca mesmo quando o destino está cloakeado.</b></p>`;
+    h += `<div class="card"><h4>Criativos mais escalados</h4>
+      <p class="hint">Cada imagem é um criativo, com quantas cópias dele o
+      anunciante roda. Mais cópias = mais validado. Só os maiores aparecem, e
+      só um exemplo de cada — <b>visível na Biblioteca mesmo com o destino
+      cloakeado.</b></p>
+      <div class="galeria">`;
     for (const g of r.criativos_pulverizados) {
-      h += `<div class="leak">${g.declarado} cópias do mesmo criativo`
-        + (g.vistos ? ` (${g.vistos} vistas nesta coleta)` : "")
-        + (g.hosts && g.hosts.length ? ` — ${g.hosts.map(esc).join(", ")}` : "")
-        + `</div>`;
+      const legenda = `${g.declarado}× cópias`
+        + (g.hosts && g.hosts.length ? ` · ${g.hosts.map(esc).join(", ")}` : "");
+      h += `<figure class="crx">`
+        + (g.img
+            ? `<a href="${esc(g.img)}" target="_blank"><img src="${esc(g.img)}" loading="lazy"></a>`
+            : `<div class="crx-vazio">vídeo/sem imagem</div>`)
+        + `<figcaption>${legenda}</figcaption></figure>`;
     }
-    h += `</div>`;
+    h += `</div></div>`;
   }
 
   if ((r.bio_dominios || []).length) {

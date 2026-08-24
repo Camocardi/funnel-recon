@@ -18,7 +18,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from ..orchestrate import run_pipeline
 
@@ -29,6 +29,21 @@ app = FastAPI(title="Funnel Recon")
 @app.get("/")
 async def index():
     return FileResponse(STATIC / "index.html")
+
+
+@app.get("/criativo/{pasta}/{arquivo}")
+async def criativo(pasta: str, arquivo: str):
+    """Serve uma imagem de criativo salva, para a galeria do relatorio.
+
+    Restrito a support/creatives: `pasta`/`arquivo` sao validados contra
+    path traversal -- so nome simples, so dentro da base.
+    """
+    from .. import paths
+    base = paths.creatives_dir().resolve()
+    alvo = (base / pasta / arquivo).resolve()
+    if base not in alvo.parents or not alvo.is_file():
+        return JSONResponse({"erro": "nao encontrado"}, status_code=404)
+    return FileResponse(alvo)
 
 
 @app.get("/api/analisar")
@@ -99,6 +114,40 @@ async def analisar(url: str, proxy: str | None = None, modo: str = "tudo",
                                       "X-Accel-Buffering": "no"})
 
 
+def _galeria(f) -> list[dict]:
+    """Um card por criativo escalado: contagem, hosts e a imagem salva (se ha).
+
+    Casa cada grupo de collation com o arquivo de imagem do seu representante,
+    para o relatorio mostrar a miniatura -- e nao so o numero de copias.
+    """
+    from pathlib import Path
+
+    from ..collation import representantes
+
+    reps = {a.ad_id: a for a in representantes(f.ads, limite=12)}
+    pasta = Path(f.creatives_dir) if f.creatives_dir else None
+    nome_pasta = pasta.name if pasta else ""
+
+    # ad_id do representante por collation_id, para casar com o resumo
+    rep_por_grupo = {}
+    for a in reps.values():
+        rep_por_grupo.setdefault(getattr(a, "collation_id", ""), a.ad_id)
+
+    saida = []
+    for g in f.criativos_pulverizados:
+        cid = g["collation_id"]
+        ad_id = rep_por_grupo.get(cid)
+        img = ""
+        if ad_id and pasta:
+            for ext in (".jpg", ".png"):
+                if (pasta / f"{ad_id}{ext}").is_file():
+                    img = f"/criativo/{nome_pasta}/{ad_id}{ext}"
+                    break
+        saida.append({"declarado": g["declarado"], "vistos": g["vistos"],
+                      "hosts": g["hosts"], "img": img})
+    return saida
+
+
 def _serialize(f) -> dict:
     return {
         "veredito": f.verdict,
@@ -132,9 +181,7 @@ def _serialize(f) -> dict:
         "operadores_vistos": f.operadores_vistos,
         "rede": {"bytes": f.bytes_coleta, "por_tipo": f.rede_por_tipo},
         "bio_dominios": f.bio_dominios,
-        "criativos_pulverizados": [
-            {"declarado": g["declarado"], "vistos": g["vistos"],
-             "hosts": g["hosts"]} for g in f.criativos_pulverizados],
+        "criativos_pulverizados": _galeria(f),
         "anuncios": [asdict(a) for a in f.ads[:200]],
     }
 

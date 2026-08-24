@@ -227,11 +227,16 @@ async def run_pipeline(
     if escolhidos:
         say("criativo", "inicio", {"anuncios": len(escolhidos), "com_historico": len(antes)})
         try:
-            # Salva as imagens numa pasta datada, para o usuario VER o
-            # criativo depois (a URL do CDN expira em horas).
+            # Salvar imagem: SO dos criativos mais escalados (um representante
+            # por grupo de collation), para nao encher o disco com dezenas de
+            # copias da mesma imagem. Esses sao os que valem ver -- mais copias
+            # = criativo mais validado. O hash continua para TODOS (o historico
+            # ontem x hoje precisa de todos), so a IMAGEM e seletiva.
+            from .collation import representantes as _repr
             from .paths import creatives_dir
+            salvar_ids = {a.ad_id for a in _repr(f.ads, limite=12)}
             pasta = None
-            if save:
+            if save and salvar_ids:
                 from datetime import datetime
                 pasta = creatives_dir() / datetime.now().strftime("%Y-%m-%d_%H%M")
                 pasta.mkdir(parents=True, exist_ok=True)
@@ -239,7 +244,7 @@ async def run_pipeline(
             agora = await hash_many(
                 [(a.ad_id, midia.get(a.ad_id, [])) for a in escolhidos],
                 on_done=lambda n: say("criativo", "hasheando", {"prontos": n}),
-                salvar_em=pasta)
+                salvar_em=pasta, salvar_apenas=salvar_ids if pasta else None)
         except Exception as e:
             # Criativo e uma trilha paralela: falhar aqui nao pode derrubar a
             # analise de destino, que e a que o usuario veio buscar.

@@ -51,7 +51,7 @@ def coletor(parcial=False, linhas=None):
     return falso
 
 
-async def hash_falso(items, concurrency=6, on_done=None, salvar_em=None):
+async def hash_falso(items, concurrency=6, on_done=None, salvar_em=None, salvar_apenas=None):
     chamou["hash"] += 1
     return {k: HASHES[k] for k, _ in items if k in HASHES}
 

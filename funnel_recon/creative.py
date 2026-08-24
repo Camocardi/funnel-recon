@@ -219,7 +219,7 @@ async def hash_e_salvar(media: list[str], destino) -> str | None:
 
 
 async def hash_many(items: list[tuple[str, list[str]]], concurrency: int = 6,
-                    on_done=None, salvar_em=None) -> dict[str, str]:
+                    on_done=None, salvar_em=None, salvar_apenas=None) -> dict[str, str]:
     """{ad_id: pHash} para varios anuncios de uma vez.
 
     Concorrencia baixa de proposito. Sao requisicoes ao CDN do Meta a partir do
@@ -231,8 +231,12 @@ async def hash_many(items: list[tuple[str, list[str]]], concurrency: int = 6,
     out: dict[str, str] = {}
 
     async def um(ad_id: str, media: list[str]):
+        # Hasheia todos; salva a imagem so de quem esta em `salvar_apenas`
+        # (os criativos mais escalados). Assim o historico cobre tudo, mas o
+        # disco so guarda o que vale ver.
+        grava = salvar_em is not None and (salvar_apenas is None or ad_id in salvar_apenas)
         async with sem:
-            if salvar_em is not None:
+            if grava:
                 h = await hash_e_salvar(media, salvar_em / str(ad_id))
             else:
                 h = await hash_asset(media)
