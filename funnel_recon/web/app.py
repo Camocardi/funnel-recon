@@ -122,29 +122,36 @@ def _galeria(f) -> list[dict]:
     """
     from pathlib import Path
 
-    from ..collation import representantes
-
-    reps = {a.ad_id: a for a in representantes(f.ads, limite=12)}
-    resumo_por_grupo = {g["collation_id"]: g for g in f.criativos_pulverizados}
     pasta = Path(f.creatives_dir) if f.creatives_dir else None
     nome_pasta = pasta.name if pasta else ""
 
-    # ad_id do representante por collation_id, para casar com o resumo
-    rep_por_grupo = {}
-    for a in reps.values():
-        rep_por_grupo.setdefault(getattr(a, "collation_id", ""), a.ad_id)
+    # UM representante por grupo, de TODOS os anuncios -- nao so dos 12 que
+    # tiveram a imagem salva. O link/poster do Meta nao custa disco (e so a URL
+    # do CDN), entao vale para todo grupo. Antes so os 12 salvos tinham link e
+    # o resto vinha "sem link" -- inclusive o unico grupo ativo, que era o que
+    # o usuario mais queria ver. Prefere um anuncio do grupo que TENHA midia.
+    rep_por_grupo: dict[str, object] = {}
+    for a in f.ads:
+        cid = getattr(a, "collation_id", None)
+        if not cid:
+            continue
+        atual = rep_por_grupo.get(cid)
+        tem_midia = getattr(a, "creative_lib_url", None) or getattr(a, "media", None)
+        if atual is None or (tem_midia and not (
+                getattr(atual, "creative_lib_url", None) or getattr(atual, "media", None))):
+            rep_por_grupo[cid] = a
 
     saida = []
     for g in f.criativos_pulverizados:
         cid = g["collation_id"]
-        ad_id = rep_por_grupo.get(cid)
+        rep = rep_por_grupo.get(cid)
+        ad_id = getattr(rep, "ad_id", None) if rep else None
         img = ""
         if ad_id and pasta:
             for ext in (".jpg", ".png"):
                 if (pasta / f"{ad_id}{ext}").is_file():
                     img = f"/criativo/{nome_pasta}/{ad_id}{ext}"
                     break
-        rep = reps.get(ad_id)
         # Link direto do Meta (a URL do CDN do criativo). Serve mesmo quando a
         # imagem nao foi salva localmente -- o usuario ainda consegue VER, em
         # vez de so ler "sem midia". Expira em horas, mas vale enquanto vale.
