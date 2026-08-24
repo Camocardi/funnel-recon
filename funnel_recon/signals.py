@@ -7,7 +7,7 @@ Fonte: secoes 3 e 6 do brief.
 from __future__ import annotations
 
 import re
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 # Destino de funil: para onde a money page manda o usuario de verdade.
 FUNNEL_PATTERNS: dict[str, re.Pattern[str]] = {
@@ -48,9 +48,29 @@ CLOAKER_BRANDS = {
 }
 CLOAK_HINT = re.compile(r"cloak", re.I)
 
+# Parametro de click id que o cloaker carimba na URL final. Visto num link de
+# money page vazada: `...&twrclid=88656788073034240`. Achar isto e prova
+# direta de qual plataforma esta na frente da oferta -- nao suposicao pelo
+# nome do dominio.
+CLOAKER_CLICK_PARAMS = {
+    "twrclid": "The White Rabbit",
+    "cbclid": "CloakBy",
+    "cloakerid": "cloaker generico",
+}
+
 # Caminho de redirecionador de tracker: `/l/<hash>`, `/go/<id>`, etc.
 # Encontrar isto significa que a URL util tem PATH -- sondar a raiz da 404.
 REDIRECTOR_PATH = re.compile(r"^/(?:l|go|r|click|out|link|redir)/[A-Za-z0-9_-]{4,}$", re.I)
+
+# Hash de segmento unico: `/6wdngodop9/`, `/ypf0414b48/`. E o formato que o
+# The White Rabbit gera, e nao tem prefixo nomeado -- entao a regex acima nao
+# pegava. Custou caro num caso real: numa coleta com 600 anuncios apontando
+# para `/6wdngodop9/`, o probe preferiu um `/quizz` com 8 anuncios, porque so
+# aquele "parecia" alvo de cloaker.
+#
+# Exigir digito E letra e o que separa hash de palavra: `quizz`, `main` e
+# `checkout` nao tem digito; `6wdngodop9` e `a2cl4pe5tt` tem os dois.
+HASH_PATH = re.compile(r"^/(?=[a-z0-9]*\d)(?=[a-z0-9]*[a-z])[a-z0-9]{8,32}/?$", re.I)
 
 # Erro 4 da secao 4: o fallback de DOM capturava links internos do Meta.
 # Todo dominio que sair de qualquer coletor passa por aqui.
@@ -204,11 +224,29 @@ def has_funnel_signal(signals: list[str]) -> bool:
     return any(s in FUNNEL_PATTERNS for s in signals)
 
 
-def looks_like_redirector(url: str) -> bool:
+def cloaker_por_parametro(url: str) -> str:
+    """Plataforma de cloaking identificada pelo PARAMETRO da URL, ou "".
+
+    Mais forte que adivinhar pelo nome do dominio: o parametro so existe
+    porque aquele cloaker especifico processou o clique.
+    """
     try:
-        return bool(REDIRECTOR_PATH.match(urlparse(url).path or ""))
+        q = parse_qs(urlparse(url).query or "")
+    except ValueError:
+        return ""
+    for chave, nome in CLOAKER_CLICK_PARAMS.items():
+        if chave in q:
+            return nome
+    return ""
+
+
+def looks_like_redirector(url: str) -> bool:
+    """A URL tem cara de link de tracker/cloaker, e nao de pagina de conteudo."""
+    try:
+        caminho = urlparse(url).path or ""
     except ValueError:
         return False
+    return bool(REDIRECTOR_PATH.match(caminho) or HASH_PATH.match(caminho))
 
 
 def registrable_host(url_or_host: str) -> str:

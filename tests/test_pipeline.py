@@ -119,13 +119,30 @@ check("e some na amostra",
 check("export antigo nao inventa status", {a.is_active for a in ads}, {None})
 
 # Com status, o encerrado passa na frente do ativo em tudo mais igual.
-mesmo = dict(url="https://alvo.shop/l/h1?fbclid=Iw", host="alvo.shop", start_date="2026-01-01")
+# URLs distintas de proposito: a fila devolve UMA por URL (ver
+# pick_probe_targets), entao com url repetida a ordem nao seria observavel.
+base = dict(host="alvo.shop", start_date="2026-01-01")
 fila = pick_probe_targets([
-    normalize_row({"ad_id": "no-ar", "is_active": "true", **mesmo}),
-    normalize_row({"ad_id": "encerrado", "is_active": "false", **mesmo}),
-    normalize_row({"ad_id": "sem-status", **mesmo}),
+    normalize_row({"ad_id": "no-ar", "is_active": "true",
+                   "url": "https://alvo.shop/l/h1?fbclid=Iw", **base}),
+    normalize_row({"ad_id": "encerrado", "is_active": "false",
+                   "url": "https://alvo.shop/l/h2?fbclid=Iw", **base}),
+    normalize_row({"ad_id": "sem-status",
+                   "url": "https://alvo.shop/l/h3?fbclid=Iw", **base}),
 ], 3)
 check("encerrado primeiro", [a.ad_id for a in fila], ["encerrado", "sem-status", "no-ar"])
+
+# Mesma URL repetida NAO gasta duas vagas: sondar o mesmo link duas vezes nao
+# acrescenta nada, e numa coleta com varios destinos isso deixava alvo de fora.
+mesma = dict(url="https://alvo.shop/l/h1?fbclid=Iw", host="alvo.shop",
+             start_date="2026-01-01")
+repetida = pick_probe_targets([
+    normalize_row({"ad_id": "no-ar", "is_active": "true", **mesma}),
+    normalize_row({"ad_id": "encerrado", "is_active": "false", **mesma}),
+    normalize_row({"ad_id": "sem-status", **mesma}),
+], 3)
+check("url repetida vira um alvo so", len(repetida), 1)
+check("e sobra o de maior prioridade", repetida[0].ad_id, "encerrado")
 check("status normalizado de texto", fila[0].is_active, False)
 
 # --- vazamento no corpo do anuncio ------------------------------------------

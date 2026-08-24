@@ -262,4 +262,17 @@ def pick_probe_targets(ads: list[Ad], limit: int = 5, sample: bool = False) -> l
             ad.start_date or "9999",
         )
 
-    return sorted([a for a in ads if a.full_url], key=score)[:limit]
+    # Uma URL por alvo. Sem isto, `limit=2` podia devolver dois anuncios com a
+    # MESMA url (o mesmo criativo replicado dezenas de vezes e o normal), o
+    # chamador deduplicava depois, e metade do orcamento de sondagem sumia --
+    # numa coleta com quatro destinos distintos, so um era sondado.
+    vistos: set[str] = set()
+    fora: list[Ad] = []
+    for a in sorted([a for a in ads if a.full_url], key=score):
+        if a.full_url in vistos:
+            continue
+        vistos.add(a.full_url)
+        fora.append(a)
+        if len(fora) >= limit:
+            break
+    return fora

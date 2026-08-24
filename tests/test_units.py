@@ -229,3 +229,32 @@ if failures:
         print("  -", f)
     raise SystemExit(1)
 print("todos os testes passaram")
+
+
+# --- caminho de cloaker sem prefixo nomeado ---------------------------------
+# Caso real: coleta com 600 anuncios em `/6wdngodop9/` e 8 num `/quizz`. O
+# probe escolheu o /quizz porque so `/l/<hash>` contava como link de tracker,
+# e sondou a pagina aberta em vez do cloaker. O formato de hash de segmento
+# unico e o que o The White Rabbit gera.
+from funnel_recon.signals import cloaker_por_parametro, looks_like_redirector  # noqa: E402
+
+for u in ("https://thevitalnote.site/6wdngodop9/",
+          "https://nuevavitalidad.site/ypf0414b48/",
+          "https://modernlivingmag.site/a2cl4pe5tt/",
+          "https://achadaspremium.shop/l/dd1e1e30"):
+    check(f"hash e link de cloaker: {u[-14:]}", looks_like_redirector(u), True)
+
+# Palavra nao e hash. Sem esta separacao o probe passaria a sondar qualquer
+# pagina de conteudo achando que e tracker.
+for u in ("https://thehealthvantage.site/quizz",
+          "https://app.loveinstinct.online/msg",
+          "https://thesidetrack.site/upsells/vsl-ht/",
+          "https://x.com/checkout",
+          "https://y.com/main-es/"):
+    check(f"pagina nao e cloaker: {u[-12:]}", looks_like_redirector(u), False)
+
+# `twrclid` na URL final e prova de qual cloaker processou o clique.
+check("twrclid identifica o TWR",
+      cloaker_por_parametro("https://alvo/x?utm_source=FB&twrclid=886567880730"),
+      "The White Rabbit")
+check("sem parametro de cloaker", cloaker_por_parametro("https://alvo/x?a=1"), "")
