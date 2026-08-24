@@ -45,6 +45,19 @@ def db_path() -> Path:
     return data_dir() / "scans.db"
 
 
+def creatives_dir() -> Path:
+    """Onde as IMAGENS de criativo ficam salvas para VER depois.
+
+    A URL do CDN do Meta expira em horas -- guardar o link nao adianta. Para
+    o usuario poder olhar o criativo (e comparar o de ontem com o de hoje quando
+    ha troca), a imagem tem que ser gravada em disco na hora da coleta. Fora do
+    Documents/iCloud como todo o resto do apoio: sao muitos arquivos.
+    """
+    d = support_dir() / "creatives"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def profile_dir() -> Path:
     d = support_dir() / "browser_profile"
     d.mkdir(parents=True, exist_ok=True)

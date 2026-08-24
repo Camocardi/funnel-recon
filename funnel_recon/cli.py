@@ -450,6 +450,11 @@ def build_parser() -> argparse.ArgumentParser:
                          "(e a mesma VSL ou uma nova?)")
     pg.set_defaults(func=cmd_page)
 
+    cr = sub.add_parser("criativos", help="abrir a pasta com as imagens de "
+                                         "criativo ja salvas")
+    cr.add_argument("--abrir", action="store_true", help="abre no Finder")
+    cr.set_defaults(func=cmd_criativos)
+
     op = sub.add_parser("operador", help="operadores conhecidos pela conta de "
                                         "VSL -- para reconhecer campanha nova cedo")
     op.add_argument("--marcar", metavar="CONTA", help="uuid da conta converteai")
@@ -510,6 +515,31 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def cmd_criativos(args) -> int:
+    """Lista/abre as pastas de imagens de criativo salvas nas coletas."""
+    import subprocess
+
+    from .paths import creatives_dir
+
+    base = creatives_dir()
+    pastas = sorted([d for d in base.iterdir() if d.is_dir()], reverse=True)
+    if not pastas:
+        print(f"nenhuma imagem salva ainda em {base}")
+        print("rode uma coleta (qualquer modo menos hash desligado) primeiro.")
+        return 0
+    print(f"pastas de criativo em {base}:")
+    for d in pastas[:12]:
+        n = len(list(d.glob("*.jpg"))) + len(list(d.glob("*.png")))
+        print(f"  {d.name}   {n} imagens")
+    if args.abrir:
+        subprocess.run(["open", str(pastas[0])], check=False)
+        print(f"\nabri a mais recente: {pastas[0]}")
+    else:
+        print(f"\nabra no Finder:  open '{pastas[0]}'")
+        print("ou rode:         funnel_recon criativos --abrir")
+    return 0
 
 
 def cmd_operador(args) -> int:

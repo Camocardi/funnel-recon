@@ -196,8 +196,30 @@ async def hash_asset(media: list[str]) -> str | None:
     return phash(data) if data else None
 
 
+async def hash_e_salvar(media: list[str], destino) -> str | None:
+    """Baixa o asset UMA vez, hasheia e grava a imagem em `destino`.
+
+    Salva junto porque a URL expira: sem o arquivo agora, ver o criativo
+    depois vira impossivel. Devolve o pHash como hash_asset.
+    """
+    from pathlib import Path
+
+    url = hashable_asset(media)
+    data = await fetch_asset(url)
+    if not data:
+        return None
+    h = phash(data)
+    if h and destino is not None:
+        try:
+            ext = ".png" if data[:8] == b"\x89PNG\r\n\x1a\n" else ".jpg"
+            Path(destino).with_suffix(ext).write_bytes(data)
+        except Exception:
+            pass  # nao poder salvar a imagem nao invalida o hash
+    return h
+
+
 async def hash_many(items: list[tuple[str, list[str]]], concurrency: int = 6,
-                    on_done=None) -> dict[str, str]:
+                    on_done=None, salvar_em=None) -> dict[str, str]:
     """{ad_id: pHash} para varios anuncios de uma vez.
 
     Concorrencia baixa de proposito. Sao requisicoes ao CDN do Meta a partir do
@@ -210,7 +232,10 @@ async def hash_many(items: list[tuple[str, list[str]]], concurrency: int = 6,
 
     async def um(ad_id: str, media: list[str]):
         async with sem:
-            h = await hash_asset(media)
+            if salvar_em is not None:
+                h = await hash_e_salvar(media, salvar_em / str(ad_id))
+            else:
+                h = await hash_asset(media)
         if h:
             out[ad_id] = h
         if on_done:

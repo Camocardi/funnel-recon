@@ -96,6 +96,8 @@ class Findings:
     # Grupos de criativo pulverizado (uma imagem em muitas copias). Verificacao
     # de criativo independente da money page -- ver collation.py.
     criativos_pulverizados: list = field(default_factory=list)
+    # Pasta onde as imagens desta coleta foram salvas (para ver o criativo).
+    creatives_dir: str = ""
     creative_hashed: int = 0
     # Paginas abertas por porta lateral (apex, inventario do CMS). Ficam fora
     # de `probes` porque nao sao tentativas contra o filtro: sao outra porta.
@@ -225,9 +227,19 @@ async def run_pipeline(
     if escolhidos:
         say("criativo", "inicio", {"anuncios": len(escolhidos), "com_historico": len(antes)})
         try:
+            # Salva as imagens numa pasta datada, para o usuario VER o
+            # criativo depois (a URL do CDN expira em horas).
+            from .paths import creatives_dir
+            pasta = None
+            if save:
+                from datetime import datetime
+                pasta = creatives_dir() / datetime.now().strftime("%Y-%m-%d_%H%M")
+                pasta.mkdir(parents=True, exist_ok=True)
+                f.creatives_dir = str(pasta)
             agora = await hash_many(
                 [(a.ad_id, midia.get(a.ad_id, [])) for a in escolhidos],
-                on_done=lambda n: say("criativo", "hasheando", {"prontos": n}))
+                on_done=lambda n: say("criativo", "hasheando", {"prontos": n}),
+                salvar_em=pasta)
         except Exception as e:
             # Criativo e uma trilha paralela: falhar aqui nao pode derrubar a
             # analise de destino, que e a que o usuario veio buscar.
