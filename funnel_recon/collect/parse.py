@@ -173,6 +173,28 @@ def _int(v):
         return None
 
 
+def _iter_json_objs(payload: str):
+    """Todos os objetos JSON de um payload, grudados ou separados por linha."""
+    dec = json.JSONDecoder()
+    i, n = 0, len(payload)
+    while i < n:
+        while i < n and payload[i] in " \t\r\n":
+            i += 1
+        if i >= n or payload[i] not in "{[":
+            # pula ate o proximo inicio plausivel
+            nxt = min([p for p in (payload.find("{", i), payload.find("[", i))
+                       if p != -1], default=-1)
+            if nxt == -1:
+                return
+            i = nxt
+        try:
+            obj, j = dec.raw_decode(payload, i)
+            yield obj
+            i = j
+        except json.JSONDecodeError:
+            i += 1
+
+
 def extract_ads(payload: str) -> list[dict]:
     """Payload cru -> lista de registros no formato que `normalize.py` consome.
 
@@ -180,16 +202,13 @@ def extract_ads(payload: str) -> list[dict]:
     concatenados por quebra de linha, entao tentamos linha a linha.
     """
     out: dict[str, dict] = {}
-    chunks = payload.split("\n") if "\n" in payload else [payload]
 
-    for chunk in chunks:
-        chunk = chunk.strip()
-        if not chunk or chunk[0] not in "{[":
-            continue
-        try:
-            data = json.loads(chunk)
-        except (json.JSONDecodeError, ValueError):
-            continue
+    # O Meta concatena varios objetos JSON -- as vezes por quebra de linha, as
+    # vezes GRUDADOS na mesma linha. `json.loads` do bloco inteiro falha com
+    # "Extra data" no segundo caso e descartava tudo (uma busca real veio como
+    # 3 objetos numa linha so e nao extraia NADA). O decoder incremental le um
+    # objeto por vez, do lugar onde o anterior terminou.
+    for data in _iter_json_objs(payload):
 
         for obj in walk(data):
             ad_id = find_id(obj)
