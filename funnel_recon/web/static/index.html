@@ -114,6 +114,9 @@
   .crx-data{font-size:11px;color:var(--dim);margin-top:2px}
   .crx-host{font-size:11px;color:var(--dim);margin-top:2px;word-break:break-all}
   .st-on{color:var(--ok)} .st-off{color:var(--warn)}
+  .crx-off{color:var(--warn);flex-direction:column;text-align:center;line-height:1.4;padding:8px}
+  .crx-off span{color:var(--dim);font-size:10px}
+  .crx-cap-off{opacity:.6}
   .vsl-new{color:var(--ok);font-size:13px;margin:2px 0 6px}
   .verdict .tag{font-size:12px;letter-spacing:.9px;text-transform:uppercase;color:var(--dim)}
   .verdict h2{font-size:19px;margin:7px 0 11px;line-height:1.35}
@@ -451,6 +454,20 @@ const ROTULO = {
 // de coletar.
 let GALERIA = [];
 
+// A imagem não carregou: link do CDN do Meta expirou ou o anúncio saiu do ar.
+// Troca a miniatura quebrada por um aviso, para o usuário não confundir "mídia
+// caiu" com "nunca teve mídia".
+function midiaMorta(img) {
+  const fig = img.closest(".crx");
+  if (!fig) return;
+  const dl = fig.querySelector(".crx-dl");
+  const cap = fig.querySelector("figcaption");
+  fig.querySelector("a").outerHTML =
+    `<div class="crx-vazio crx-off">⚠ mídia fora do ar<br><span>link do Meta expirou ou o anúncio caiu</span></div>`;
+  if (dl) dl.remove();
+  if (cap) cap.classList.add("crx-cap-off");
+}
+
 function renderGaleria() {
   const alvo = $("#galeriaAlvo");
   if (!alvo) return;
@@ -482,14 +499,18 @@ function renderGaleria() {
       : (g.ativos ? `<span class="st-on">${g.ativos} no ar</span>` : "");
     const periodo = (g.inicio || g.fim)
       ? `<div class="crx-data">${esc(g.inicio || "?")} → ${esc(g.fim || "?")}</div>` : "";
+    // onerror: se a imagem não carrega (link do CDN expirou ou o anúncio saiu
+    // do ar), o navegador dispara isto e trocamos por um aviso claro — o
+    // usuário sabe que a mídia CAIU, diferente de nunca ter existido.
+    const morta = `onerror="midiaMorta(this)"`;
     let visual;
     if (g.img) {
-      // imagem salva localmente: mostra e permite baixar
-      visual = `<a href="${esc(g.img)}" target="_blank"><img src="${esc(g.img)}" loading="lazy"></a>`
+      // imagem salva localmente: mostra e permite baixar (não expira)
+      visual = `<a href="${esc(g.img)}" target="_blank"><img src="${esc(g.img)}" loading="lazy" ${morta}></a>`
         + `<a class="crx-dl" href="${esc(g.img)}" download>⤓ baixar imagem</a>`;
     } else if (g.poster) {
       // não salva, mas há poster no CDN do Meta: mostra o poster (vale enquanto o link vive)
-      visual = `<a href="${esc(g.video || g.poster)}" target="_blank"><img src="${esc(g.poster)}" loading="lazy"></a>`
+      visual = `<a href="${esc(g.video || g.poster)}" target="_blank"><img src="${esc(g.poster)}" loading="lazy" ${morta}></a>`
         + `<a class="crx-dl" href="${esc(g.video || g.link)}" target="_blank">↗ ${g.video ? "abrir vídeo" : "ver no Meta"}</a>`;
     } else if (g.video || g.link) {
       const url = g.video || g.link;
