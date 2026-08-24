@@ -450,6 +450,12 @@ def build_parser() -> argparse.ArgumentParser:
                          "(e a mesma VSL ou uma nova?)")
     pg.set_defaults(func=cmd_page)
 
+    vi = sub.add_parser("vsl-id", help="[5c] identidade de uma money page e os "
+                                       "irmaos do mesmo operador")
+    vi.add_argument("url", help="URL da money page (a VSL, nao o link do anuncio)")
+    vi.add_argument("--db")
+    vi.set_defaults(func=cmd_vsl_id)
+
     px = sub.add_parser("proxy", help="guardar o proxy uma vez, em vez de "
                                       "colar a string em todo comando")
     px.add_argument("--salvar", metavar="STRING",
@@ -486,6 +492,49 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def cmd_vsl_id(args) -> int:
+    """Radiografa uma money page e caça as outras ofertas do mesmo operador."""
+    import asyncio
+
+    from . import db
+    from .vsl_identity import identidade, ip_do_host, irmaos_no_banco
+
+    r = asyncio.run(identidade(args.url))
+    print(f"\n{r['url']}")
+    if r["bounced"]:
+        print("  [!] a URL redirecionou para outro dominio -- pode ser despejo,")
+        print("      nao a money page. Sinais abaixo podem estar vazios.")
+    print(f"  titulo  : {r['titulo'][:70]}")
+    print(f"  conta   : {r['account'] or '(nao achei conta de VSL nesta pagina)'}")
+    for v in r["videos"]:
+        print(f"  video   : {v}")
+    for c in r["checkouts"]:
+        print(f"  checkout: {c[:80]}")
+    ips = ip_do_host(r["host"])
+    for ip in ips:
+        print(f"  servidor: {ip}")
+
+    if not r["account"]:
+        return 0
+
+    conn = db.connect(args.db) if args.db else db.connect()
+    irmaos = [x for x in irmaos_no_banco(conn, r["account"])
+              if x["url"] != r["url"] and x["url"] != r["final_url"]]
+    print(f"\n  mesma conta {r['account']} em outras paginas ja vistas: {len(irmaos)}")
+    for x in irmaos:
+        print(f"    {x['url'][:64]}")
+        if x["videos"]:
+            print(f"       videos: {', '.join(x['videos'])}")
+        if x["checkouts"]:
+            print(f"       checkout: {x['checkouts'][0][:64]}")
+        if x["visto_em"]:
+            print(f"       visto em: {x['visto_em']}")
+    if not irmaos:
+        print("    (nenhuma ainda -- radiografe outras money pages para o banco")
+        print("     aprender a ligar; a conta e o pivo)")
+    return 0
 
 
 def cmd_proxy(args) -> int:
