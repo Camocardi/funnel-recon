@@ -100,6 +100,10 @@
   .verdict.isca{border-color:var(--warn)}
   .vsl-old{color:var(--warn);font-size:13px;margin:2px 0 6px}
   .galeria{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-top:12px}
+  .filtros-galeria{display:flex;flex-wrap:wrap;gap:14px;margin:12px 0 4px;font-size:13px;color:var(--dim)}
+  .filtros-galeria label{display:flex;flex-direction:column;gap:3px}
+  .filtros-galeria select,.filtros-galeria input{background:#0c0f16;color:#e6ebf5;border:1px solid #2a3242;
+    border-radius:6px;padding:5px 8px;font-size:13px}
   .crx{margin:0}
   .crx img{width:100%;height:150px;object-fit:cover;border-radius:8px;display:block;background:#0c0f16}
   .crx-vazio{width:100%;height:150px;border-radius:8px;background:#0c0f16;color:var(--dim);
@@ -442,6 +446,57 @@ const ROTULO = {
   criativo: "Criativo trocado", error: "Erro", unknown: "Sem conclusão",
 };
 
+// Dados da galeria de criativos, guardados para o filtro re-renderizar sem
+// refazer o scan. O usuario pediu filtrar por status/data/quantidade DEPOIS
+// de coletar.
+let GALERIA = [];
+
+function renderGaleria() {
+  const alvo = $("#galeriaAlvo");
+  if (!alvo) return;
+  const st = ($("#fStatus") || {}).value || "todos";
+  const min = parseInt(($("#fMin") || {}).value || "0", 10) || 0;
+  const desde = ($("#fDesde") || {}).value || "";
+  const ord = ($("#fOrd") || {}).value || "copias";
+
+  let itens = GALERIA.filter(g => {
+    if (st === "ativos" && !(g.ativos > 0)) return false;
+    if (st === "inativos" && !g.so_inativos) return false;
+    if (g.declarado < min) return false;
+    if (desde && (g.fim || g.inicio || "") < desde) return false;
+    return true;
+  });
+  itens.sort((a, b) =>
+    ord === "recente" ? String(b.fim || "").localeCompare(String(a.fim || "")) :
+    ord === "antigo" ? String(a.inicio || "").localeCompare(String(b.inicio || "")) :
+    b.declarado - a.declarado);
+
+  if (!itens.length) { alvo.innerHTML = `<p class="hint">nenhum criativo com esse filtro.</p>`; return; }
+  let h = `<div class="galeria">`;
+  for (const g of itens) {
+    const status = g.so_inativos
+      ? `<span class="st-off">só inativos</span>`
+      : (g.ativos ? `<span class="st-on">${g.ativos} no ar</span>` : "");
+    const periodo = (g.inicio || g.fim)
+      ? `<div class="crx-data">${esc(g.inicio || "?")} → ${esc(g.fim || "?")}</div>` : "";
+    let visual;
+    if (g.img) {
+      visual = `<a href="${esc(g.img)}" target="_blank"><img src="${esc(g.img)}" loading="lazy"></a>`
+        + `<a class="crx-dl" href="${esc(g.img)}" download>⤓ baixar imagem</a>`;
+    } else if (g.video) {
+      visual = `<div class="crx-vazio">🎬 vídeo</div>`
+        + `<a class="crx-dl" href="${esc(g.video)}" target="_blank" download>⤓ abrir/baixar vídeo</a>`;
+    } else {
+      visual = `<div class="crx-vazio">sem mídia salva</div>`;
+    }
+    h += `<figure class="crx">${visual}`
+      + `<figcaption><b>${g.declarado}×</b> cópias ${status}${periodo}`
+      + (g.hosts && g.hosts.length ? `<div class="crx-host">${g.hosts.map(esc).join(", ")}</div>` : "")
+      + `</figcaption></figure>`;
+  }
+  alvo.innerHTML = h + `</div><p class="hint" style="margin-top:8px">${itens.length} de ${GALERIA.length} criativos</p>`;
+}
+
 function finish(r) {
   const seg = Math.floor((Date.now() - t0) / 1000);
   parar();
@@ -497,35 +552,32 @@ function finish(r) {
   }
 
   if ((r.criativos_pulverizados || []).length) {
+    // Guarda os dados para o filtro re-renderizar sem novo scan.
+    GALERIA = r.criativos_pulverizados;
     h += `<div class="card"><h4>Criativos mais escalados</h4>
       <p class="hint">Cada imagem é um criativo, com quantas cópias dele o
-      anunciante roda. Mais cópias = mais validado. Só os maiores aparecem, e
-      só um exemplo de cada — <b>visível na Biblioteca mesmo com o destino
-      cloakeado.</b></p>
-      <div class="galeria">`;
-    for (const g of r.criativos_pulverizados) {
-      const total = (g.ativos || 0) + (g.inativos || 0);
-      const status = g.so_inativos
-        ? `<span class="st-off">só inativos</span>`
-        : (g.ativos ? `<span class="st-on">${g.ativos} no ar</span>` : "");
-      const periodo = (g.inicio || g.fim)
-        ? `<div class="crx-data">${esc(g.inicio || "?")} → ${esc(g.fim || "?")}</div>` : "";
-      let visual;
-      if (g.img) {
-        visual = `<a href="${esc(g.img)}" target="_blank"><img src="${esc(g.img)}" loading="lazy"></a>`
-          + `<a class="crx-dl" href="${esc(g.img)}" download>⤓ baixar imagem</a>`;
-      } else if (g.video) {
-        visual = `<div class="crx-vazio">🎬 vídeo</div>`
-          + `<a class="crx-dl" href="${esc(g.video)}" target="_blank" download>⤓ abrir/baixar vídeo</a>`;
-      } else {
-        visual = `<div class="crx-vazio">sem mídia</div>`;
-      }
-      h += `<figure class="crx">${visual}`
-        + `<figcaption><b>${g.declarado}×</b> cópias ${status}${periodo}`
-        + (g.hosts && g.hosts.length ? `<div class="crx-host">${g.hosts.map(esc).join(", ")}</div>` : "")
-        + `</figcaption></figure>`;
-    }
-    h += `</div></div>`;
+      anunciante roda. Mais cópias = mais validado. <b>Visível na Biblioteca
+      mesmo com o destino cloakeado.</b></p>
+      <div class="filtros-galeria">
+        <label>Status
+          <select id="fStatus" onchange="renderGaleria()">
+            <option value="todos">todos</option>
+            <option value="ativos">só com ativos</option>
+            <option value="inativos">só inativos</option>
+          </select></label>
+        <label>Mín. cópias
+          <input type="number" id="fMin" value="0" min="0" style="width:70px"
+                 oninput="renderGaleria()"></label>
+        <label>Desde
+          <input type="date" id="fDesde" oninput="renderGaleria()"></label>
+        <label>Ordenar
+          <select id="fOrd" onchange="renderGaleria()">
+            <option value="copias">mais cópias</option>
+            <option value="recente">mais recente</option>
+            <option value="antigo">mais antigo</option>
+          </select></label>
+      </div>
+      <div id="galeriaAlvo"></div></div>`;
   }
 
   if ((r.bio_dominios || []).length) {
@@ -697,6 +749,7 @@ function finish(r) {
   }
 
   $("#out").innerHTML = h;
+  renderGaleria();   // desenha a galeria filtrável depois que o HTML entrou
 
   // Copiar a URL COMPLETA (com fbclid quando existe) -- digitar o domínio na
   // mão é justamente como se acaba na raiz que dá 404.
