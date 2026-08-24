@@ -52,12 +52,27 @@ def resumo(ads: list) -> list[dict]:
             continue
         g = grupos.setdefault(cid, {
             "collation_id": cid, "declarado": cc, "vistos": 0,
-            "hosts": set(), "exemplo": a.ad_id})
+            "ativos": 0, "inativos": 0, "hosts": set(),
+            "inicio": None, "fim": None, "exemplo": a.ad_id})
         g["vistos"] += 1
+        if getattr(a, "is_active", None) is True:
+            g["ativos"] += 1
+        elif getattr(a, "is_active", None) is False:
+            g["inativos"] += 1
         if getattr(a, "display_host", None):
             g["hosts"].add(a.display_host)
+        # faixa de datas do grupo: quando comecou e quando o ultimo saiu do ar.
+        ini = getattr(a, "start_date", None)
+        fim = getattr(a, "end_date", None)
+        if ini and (g["inicio"] is None or ini < g["inicio"]):
+            g["inicio"] = ini
+        if fim and (g["fim"] is None or fim > g["fim"]):
+            g["fim"] = fim
     saida = []
     for g in grupos.values():
         g["hosts"] = sorted(g["hosts"])
+        # so_inativos: o criativo foi escalado mas ja saiu todo do ar -- rodou
+        # e morreu. Diferente de ativo, que e o que esta convertendo agora.
+        g["so_inativos"] = g["ativos"] == 0 and g["inativos"] > 0
         saida.append(g)
     return sorted(saida, key=lambda g: -g["declarado"])

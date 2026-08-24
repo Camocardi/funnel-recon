@@ -43,7 +43,7 @@ async def criativo(pasta: str, arquivo: str):
     alvo = (base / pasta / arquivo).resolve()
     if base not in alvo.parents or not alvo.is_file():
         return JSONResponse({"erro": "nao encontrado"}, status_code=404)
-    return FileResponse(alvo)
+    return FileResponse(alvo, filename=f"criativo_{arquivo}")
 
 
 @app.get("/api/analisar")
@@ -125,6 +125,7 @@ def _galeria(f) -> list[dict]:
     from ..collation import representantes
 
     reps = {a.ad_id: a for a in representantes(f.ads, limite=12)}
+    resumo_por_grupo = {g["collation_id"]: g for g in f.criativos_pulverizados}
     pasta = Path(f.creatives_dir) if f.creatives_dir else None
     nome_pasta = pasta.name if pasta else ""
 
@@ -143,8 +144,17 @@ def _galeria(f) -> list[dict]:
                 if (pasta / f"{ad_id}{ext}").is_file():
                     img = f"/criativo/{nome_pasta}/{ad_id}{ext}"
                     break
+        rep = reps.get(ad_id)
+        # link do criativo em VIDEO (quando o representante e video, nao imagem)
+        video = ""
+        lib = getattr(rep, "creative_lib_url", "") if rep else ""
+        if lib and "/o1/v/" in lib:
+            video = lib
         saida.append({"declarado": g["declarado"], "vistos": g["vistos"],
-                      "hosts": g["hosts"], "img": img})
+                      "hosts": g["hosts"], "img": img, "video": video,
+                      "ativos": g.get("ativos", 0), "inativos": g.get("inativos", 0),
+                      "so_inativos": g.get("so_inativos", False),
+                      "inicio": g.get("inicio"), "fim": g.get("fim")})
     return saida
 
 
