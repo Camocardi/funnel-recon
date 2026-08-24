@@ -88,13 +88,22 @@ def pulados(eventos):
 with tempfile.TemporaryDirectory() as tmp:
     db.db_path = lambda: Path(tmp) / "t.db"
 
-    # --- modo "so o funil": nao baixa criativo --------------------------
+    # --- modo "so o funil": AGORA tambem hasheia -----------------------
+    # O hash roda em todo modo (menos max_creative_hashes=0), porque e ele que
+    # constroi o historico ontem x hoje -- deteccao de troca de criativo que
+    # nao depende da money page. So o video pesado fica de fora; a thumbnail e
+    # barata. Ver orchestrate: bloco de criativo.
     chamou.update(osint=0, probe=0, hash=0)
     f, ev = rodar(mode="funil")
-    check("funil nao hasheia criativo", chamou["hash"], 0)
     check("funil roda o osint", chamou["osint"], 1)
+    check("funil AGORA hasheia para o historico", chamou["hash"], 1)
+    check("funil guarda hash", f.creative_hashed > 0, True)
+
+    # --- max_creative_hashes=0 desliga o hash de proposito -------------
+    chamou.update(osint=0, probe=0, hash=0)
+    f, ev = rodar(mode="funil", max_creative_hashes=0)
+    check("hash desligado nao hasheia", chamou["hash"], 0)
     check("estagio de criativo marcado como pulado", "criativo" in pulados(ev), True)
-    check("funil nao guarda hash", f.creative_hashed, 0)
 
     # --- modo "so os criativos": nao sonda o alvo -----------------------
     chamou.update(osint=0, probe=0, hash=0)

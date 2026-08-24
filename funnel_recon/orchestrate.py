@@ -211,8 +211,13 @@ async def run_pipeline(
     escolhidos: list[Ad] = []
     midia = {r.get("ad_id"): (r.get("media") or []) for r in raw if isinstance(r, dict)}
 
-    if mode == "funil":
-        say("criativo", "pulado", {"motivo": "voce pediu so o funil"})
+    # O hash roda ATE em "so o funil". Antes era pulado, e por isso o
+    # historico nunca acumulava -- sem dois pontos no tempo nao ha como detectar
+    # troca de criativo (bait-and-switch no tempo), que e verificacao que NAO
+    # depende da money page. O custo e baixo: so a thumbnail, nunca o video.
+    # Quem quiser pular de proposito usa max_creative_hashes=0.
+    if max_creative_hashes <= 0:
+        say("criativo", "pulado", {"motivo": "hash desligado"})
     else:
         antes = db.creative_hashes(conn, [a.ad_id for a in f.ads]) if conn else {}
         escolhidos = _escolher_criativos(f.ads, set(antes), max_creative_hashes)
