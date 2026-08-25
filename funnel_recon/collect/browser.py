@@ -26,8 +26,13 @@ from .parse import extract_ads, merge_rec
 GRAPHQL_MARKERS = ("/api/graphql", "/ads/library/async")
 
 # Quantos ciclos de rolagem sem anuncio novo antes de considerar que acabou.
-STAGNANT_LIMIT = 4
-SCROLL_PAUSE = 1.6
+# 8 (nao 4): a Biblioteca pagina por cursor e a proxima pagina as vezes demora
+# alguns segundos para chegar depois do gatilho de scroll. Com 4 a coleta
+# desistia no meio -- parava em 18 de 42 porque a 3a pagina ainda nao tinha
+# voltado. 8 ciclos x SCROLL_PAUSE da folga para o cursor responder sem tornar
+# o fim de uma pagina realmente esgotada lento demais.
+STAGNANT_LIMIT = 8
+SCROLL_PAUSE = 2.4
 MAX_SCROLLS = 400
 
 # Tres freios independentes, porque uma pagina grande derrota cada um sozinho.
@@ -121,6 +126,9 @@ async def collect(
 
     records: dict[str, dict] = {}
     payloads_seen = 0
+    # A Biblioteca ainda tem paginas a servir? Atualizado a cada payload pelo
+    # has_next_page. Comeca True para nao parar antes do primeiro payload.
+    mais_paginas = True
 
     async with async_playwright() as pw:
         ctx = await pw.chromium.launch_persistent_context(
@@ -171,6 +179,20 @@ async def collect(
             except Exception:
                 return  # resposta ja consumida ou binaria; ignorar
             payloads_seen += 1
+            # A Biblioteca diz se ha proxima pagina. Enquanto for `true`, a
+            # coleta NAO pode declarar fim so porque um ciclo de scroll nao
+            # trouxe anuncio novo -- a proxima pagina pode estar a caminho. Sem
+            # isto a coleta parava em 18 de 42 (o cursor ainda tinha paginas).
+            nonlocal mais_paginas
+            # Um payload pode ter has_next_page de campos diferentes (os
+            # anuncios e, por ex., os filtros). Na duvida, o lado seguro e
+            # "ainda ha pagina" (true): parar cedo perde anuncio, insistir so
+            # gasta alguns scrolls a mais que o timeout limita.
+            comprimido = body.replace(" ", "")
+            if '"has_next_page":true' in comprimido:
+                mais_paginas = True
+            elif '"has_next_page":false' in comprimido:
+                mais_paginas = False
             novos = 0
             for rec in extract_ads(body):
                 prev = records.get(rec["ad_id"])
@@ -213,7 +235,16 @@ async def collect(
                 break
             scrolls = i + 1
             try:
-                await page.mouse.wheel(0, 2600)
+                # Rolar ate o FIM REAL do documento, nao um empurrao fixo de
+                # viewport. A Biblioteca so pede a proxima pagina (has_next_page
+                # + end_cursor) quando o gatilho de scroll infinito entra em
+                # vista, e com poucos cards a pagina nao tem altura para o
+                # wheel rolar -- a paginacao nunca disparava e a coleta parava
+                # em 10 quando havia 42. `scrollTo(scrollHeight)` + End força o
+                # gatilho mesmo com a pagina curta.
+                await page.evaluate(
+                    "window.scrollTo(0, document.body.scrollHeight)")
+                await page.keyboard.press("End")
             except Exception as e:
                 # Pagina grande demais trava o Playwright na rolagem. O que ja
                 # esta em `records` e coleta legitima e sai daqui com a gente:
@@ -224,7 +255,11 @@ async def collect(
                 break
             await asyncio.sleep(SCROLL_PAUSE)
             if len(records) == last:
-                stagnant += 1
+                # So conta como "parado" quando a Biblioteca ja disse que nao
+                # ha mais pagina. Enquanto has_next_page for true, o vazio e so
+                # a proxima pagina ainda a caminho -- nao o fim.
+                if not mais_paginas:
+                    stagnant += 1
             else:
                 stagnant = 0
                 last = len(records)
