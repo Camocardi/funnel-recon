@@ -193,8 +193,22 @@ async def collect(
                 mais_paginas = True
             elif '"has_next_page":false' in comprimido:
                 mais_paginas = False
+            absorver(body)
+
+        def absorver(texto: str) -> int:
+            """Extrai anuncios de um texto (payload GraphQL OU HTML da pagina)
+            e guarda os novos. Devolve quantos novos entraram.
+
+            Existe porque os primeiros ~30 anuncios vem RENDERIZADOS NO HTML da
+            pagina, nao por GraphQL -- so o scroll seguinte usa GraphQL. Ler so
+            as respostas GraphQL pulava esse primeiro bloco e coletava um
+            SUBCONJUNTO diferente do que a Biblioteca mostra (o usuario via
+            imagens que nao batiam, e o probe caia na isca, nao no funil real).
+            """
             novos = 0
-            for rec in extract_ads(body):
+            for rec in extract_ads(texto):
+                if len(records) >= max_ads and rec["ad_id"] not in records:
+                    continue
                 prev = records.get(rec["ad_id"])
                 if not prev:
                     records[rec["ad_id"]] = rec
@@ -203,6 +217,7 @@ async def collect(
                     merge_rec(prev, rec)
             if novos:
                 say("coletando", ads=len(records), novos=novos)
+            return novos
 
         page.on("response", on_response)
 
@@ -218,6 +233,14 @@ async def collect(
                 "abrir e deixe a coleta seguir -- a sessao fica guardada e nas "
                 "proximas vezes isso nao se repete."
             )
+
+        # Os primeiros anuncios vem no HTML da pagina, nao por GraphQL. Absorve
+        # o HTML agora -- sem isto, esse bloco inicial (o que a Biblioteca
+        # mostra em destaque) era ignorado.
+        try:
+            absorver(await page.content())
+        except Exception:
+            pass
 
         say("rolando", ads=len(records))
         stagnant, last = 0, -1
@@ -254,6 +277,12 @@ async def collect(
                 say("rolagem_falhou", ads=len(records), erro=type(e).__name__)
                 break
             await asyncio.sleep(SCROLL_PAUSE)
+            # Absorve tambem o HTML atual: parte dos anuncios e renderizada no
+            # DOM sem passar por GraphQL, e sem isto ficavam de fora.
+            try:
+                absorver(await page.content())
+            except Exception:
+                pass
             if len(records) == last:
                 # So conta como "parado" quando a Biblioteca ja disse que nao
                 # ha mais pagina. Enquanto has_next_page for true, o vazio e so
